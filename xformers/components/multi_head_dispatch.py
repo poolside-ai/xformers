@@ -100,7 +100,8 @@ class MultiHeadDispatch(nn.Module):
 
         assert (
             dim_model % num_heads == 0
-        )  # static preset for now, each head works on 1/d the embeddings, could be relaxed
+        ), f"dim_model {dim_model} must divide by num_heads {num_heads}"
+        # static preset for now, each head works on 1/d the embeddings, could be relaxed
         assert num_heads > 0
 
         # Popular default is that all latent dimensions are the same
