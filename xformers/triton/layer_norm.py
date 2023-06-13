@@ -23,13 +23,13 @@ from xformers.triton.k_layer_norm import (
 logger = logging.getLogger("xformers")
 
 
-_triton_layernorm_fp16_enabled = False  # NOTE: PyTorch keeps layernorm as fp32
+_triton_layernorm_cast = None  # NOTE: PyTorch keeps layernorm as fp32
 _triton_registered_warnings = False
 
 
 class _LayerNorm(torch.autograd.Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.float16 if _triton_layernorm_fp16_enabled else None)
+    @custom_fwd(cast_inputs=_triton_layernorm_cast)
     def forward(ctx, x, weight, bias, eps):
         # catch eps being too small if the tensors are fp16
         if x.dtype == torch.float16:
@@ -173,8 +173,8 @@ class FusedLayerNorm(nn.Module):
     This implementation should be measurably faster than the default PyTorch layernorm (as of PyTorch 1.9),
     both for training and inference worloads.
 
-    .. NOTE: Computations under Torch AMP are kept as float32 by default, one can change this to be float16
-        by setting the flag `xformers.triton.k_layer_norm._triton_layernorm_fp16_enabled = True`
+    .. NOTE: Computations under Torch AMP are kept as float32 by default, one can change this to be (b)float16
+        by setting the flag `xformers.triton.k_layer_norm._triton_layernorm_cast = torch.(b)float16`
 
     .. _torch.nn.LayerNorm: https://pytorch.org/docs/stable/generated/torch.nn.LayerNorm.html
 
@@ -207,11 +207,14 @@ def layer_norm(
     bias: Optional[torch.Tensor] = None,
     eps: float = 1e-06,
 ) -> torch.Tensor:
+    input_dtype = x.dtype
+    x = x.to(weight.dtype)
 
     global _triton_registered_warnings
 
     r"""Applies normalization over a mini batch of inputs"""
 
+    y = None
     try:
         if (
             not _triton_registered_warnings
@@ -220,7 +223,7 @@ def layer_norm(
             and weight is not None
             and bias is not None
         ):
-            return _LayerNorm.apply(x, weight, bias, eps)
+            y = _LayerNorm.apply(x, weight, bias, eps)
     except RuntimeError as e:
         # Catch cases where the current GPU does not have enough registers to hold a full tensor line
         # fallback to PyTorch's implementation, which streams the tensor in and out
@@ -231,6 +234,9 @@ def layer_norm(
         )
         logger.warning(e)
 
-    return torch.nn.functional.layer_norm(
-        x, [x.shape[-1]], weight=weight, bias=bias, eps=eps
-    )
+    if y is None:
+        y = torch.nn.functional.layer_norm(
+            x, [x.shape[-1]], weight=weight, bias=bias, eps=eps
+        )
+
+    return y.to(input_dtype)
