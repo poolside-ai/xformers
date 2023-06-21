@@ -4,7 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 
-from typing import List
+from typing import List, Optional
 
 import torch
 import torch.nn as nn
@@ -150,8 +150,22 @@ class ReversibleSequence(nn.Module):
         # pyre-fixme[23]: Unable to unpack `torch.nn.Module` into 2 values.
         self.blocks = nn.ModuleList([ReversibleBlock(f, g) for f, g in blocks])
 
-    def forward(self, x, arg_route=(True, False), **kwargs):
+    def forward(
+        self,
+        x,
+        arg_route=(True, False),
+        input_mask: Optional[torch.Tensor] = None,
+        **kwargs,
+    ):
         f_args, g_args = map(lambda route: kwargs if route else {}, arg_route)
         block_kwargs = {"f_args": f_args, "g_args": g_args}
 
-        return _ReversibleFunction.apply(x, self.blocks, block_kwargs)
+        y = torch.cat([x, x], dim=-1)
+        # Apply the optional input masking
+        if input_mask is not None:
+            if y.dim() - input_mask.dim() > 1:
+                input_mask.unsqueeze(0)
+            y += input_mask.unsqueeze(-1)
+        y = _ReversibleFunction.apply(y, self.blocks, block_kwargs)
+        y = torch.stack(y.chunk(2, dim=-1)).mean(dim=0)
+        return y

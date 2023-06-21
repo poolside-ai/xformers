@@ -6,7 +6,7 @@
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from xformers.components import NormalizationType, ResidualNormStyle
 from xformers.components.feedforward import FEEDFORWARD_REGISTRY, FeedforwardConfig
@@ -65,7 +65,7 @@ class xFormerBlockConfig:
     normalization: NormalizationType
     layer_position: LayerPosition
     use_triton: bool
-    reversible: bool
+    reversible: Union[bool, int]
     num_layers: int
 
     def __init__(

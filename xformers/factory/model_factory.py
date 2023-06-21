@@ -147,6 +147,14 @@ class xFormer(torch.nn.Module):
                 encoders if isinstance(config, xFormerEncoderConfig) else decoders
             )
 
+            if config.reversible:
+                assert isinstance(config, xFormerEncoderConfig)
+                if isinstance(config.reversible, bool):
+                    self.reversible_encoder = config.num_layers + 1
+                else:
+                    assert 1 < config.reversible <= config.num_layers + 1
+                    self.reversible_encoder = config.reversible
+
             # Build up the stack
             for i in range(config.num_layers):
                 # Label where this layer is in the stack
@@ -160,15 +168,17 @@ class xFormer(torch.nn.Module):
                 block = builder(config)  # type: ignore
 
                 # If reversible: extract the reversible sub-parts, else append the block as-is
-                if config.reversible:
+                if self.reversible_encoder:
                     # WARNING: only one pose encoding is saved here (not Focal Transformer compatible for instance)
-                    assert isinstance(config, xFormerEncoderConfig)
                     if block.pose_encoding is not None:
+                        assert self.rev_enc_pose_encoding is None
                         self.rev_enc_pose_encoding = block.pose_encoding
-                    self.reversible_encoder = True
 
-                    f, g = xFormerEncoderBlock.get_reversible_layer(config)
-                    recipient.append(torch.nn.ModuleList([f, g]))
+                    if (i + 1) % self.reversible_encoder > 0:
+                        f, g = xFormerEncoderBlock.get_reversible_layer(config)
+                        recipient.append(torch.nn.ModuleList([f, g]))
+                    else:
+                        recipient.append(block)
                 else:
                     recipient.append(block)  # type: ignore
 
@@ -188,11 +198,22 @@ class xFormer(torch.nn.Module):
             logger.info("Tying encoder and decoder embeddings, as requested")
             encoders[0].pose_encoding = decoders[0].pose_encoding
 
-        self.encoders: torch.nn.Module = (
-            rv.ReversibleSequence(torch.nn.ModuleList(encoders))
-            if self.reversible_encoder
-            else torch.nn.ModuleList(encoders)
-        )
+        self.encoders: torch.nn.Module
+        if self.reversible_encoder:
+            grouped_encoders = []
+            for i in range(0, len(encoders), self.reversible_encoder):
+                grouped_encoders.append(
+                    rv.ReversibleSequence(
+                        torch.nn.ModuleList(encoders[i: i + self.reversible_encoder - 1]),
+                    ),
+                )
+                try:
+                    grouped_encoders.append(encoders[i + self.reversible_encoder - 1])
+                except IndexError:
+                    break
+            self.encoders = torch.nn.ModuleList(grouped_encoders)
+        else:
+            self.encoders = torch.nn.ModuleList(encoders)
         self.decoders = torch.nn.ModuleList(decoders)
 
         use_deepnorm = (
@@ -270,25 +291,16 @@ class xFormer(torch.nn.Module):
         # Encode to latent space if encoder is present
         if len(list(self.encoders.parameters())) > 0:
             encoders = self.encoders
-            memory = src.clone()
-            if isinstance(encoders, torch.nn.ModuleList):
-                for encoder in encoders:
-                    memory = encoder(memory, input_mask=encoder_input_mask)
+            if self.rev_enc_pose_encoding:
+                memory = self.rev_enc_pose_encoding(src)
             else:
-                if self.rev_enc_pose_encoding:
-                    memory = self.rev_enc_pose_encoding(src)
-
-                # Reversible Encoder
-                x = torch.cat([memory, memory], dim=-1)
-
-                # Apply the optional input masking
-                if encoder_input_mask is not None:
-                    if x.dim() - encoder_input_mask.dim() > 1:
-                        encoder_input_mask.unsqueeze(0)
-                    x += encoder_input_mask.unsqueeze(-1)
-
-                x = encoders(x)
-                memory = torch.stack(x.chunk(2, dim=-1)).mean(dim=0)
+                if len(self.decoders) > 0:
+                    memory = src.clone()
+                else:
+                    # Encoder-only
+                    memory = src
+            for encoder in encoders:
+                memory = encoder(memory, input_mask=encoder_input_mask)
 
             if not self.decoders:
                 return memory
@@ -296,7 +308,7 @@ class xFormer(torch.nn.Module):
             # Decoder-only
             memory = src
 
-        # If decoder: either use the encoder ouput, or just decode, both options are possible
+        # If decoder: either use the encoder output, or just decode, both options are possible
         if len(self.decoders) > 0:
             tgt = src.clone() if tgt is None else tgt
 
