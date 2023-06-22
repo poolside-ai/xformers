@@ -133,7 +133,6 @@ class xFormer(torch.nn.Module):
         decoders: List[torch.nn.Module] = []
 
         self.reversible_encoder = False
-        self.rev_enc_pose_encoding = None
 
         # Unroll the configs and build the model
         for config in stack_configs:
@@ -169,11 +168,6 @@ class xFormer(torch.nn.Module):
 
                 # If reversible: extract the reversible sub-parts, else append the block as-is
                 if self.reversible_encoder and i > 0:
-                    # WARNING: only one pose encoding is saved here (not Focal Transformer compatible for instance)
-                    # if block.pose_encoding is not None:
-                    #     assert self.rev_enc_pose_encoding is None
-                    #     self.rev_enc_pose_encoding = block.pose_encoding
-
                     f, g = xFormerEncoderBlock.get_reversible_layer(config)
                     recipient.append(torch.nn.ModuleList([f, g]))
                 else:
@@ -285,14 +279,11 @@ class xFormer(torch.nn.Module):
         # Encode to latent space if encoder is present
         if len(list(self.encoders.parameters())) > 0:
             encoders = self.encoders
-            if self.rev_enc_pose_encoding:
-                memory = self.rev_enc_pose_encoding(src)
+            if len(self.decoders) > 0:
+                memory = src.clone()
             else:
-                if len(self.decoders) > 0:
-                    memory = src.clone()
-                else:
-                    # Encoder-only
-                    memory = src
+                # Encoder-only
+                memory = src
             for encoder in encoders:
                 memory = encoder(memory, input_mask=encoder_input_mask)
 
