@@ -145,7 +145,7 @@ class _ReversibleFunction(Function):
         kwargs = ctx.kwargs
         for block in ctx.blocks[::-1]:
             y, dy = block.backward_pass(y, dy, **kwargs)
-        return dy.to(dy.dtype), None, None
+        return dy, None, None
 
 
 class ReversibleSequence(nn.Module):
@@ -166,14 +166,30 @@ class ReversibleSequence(nn.Module):
     ):
         f_args, g_args = map(lambda route: kwargs if route else {}, arg_route)
         block_kwargs = {"f_args": f_args, "g_args": g_args}
-        split_dim = self.blocks[0].split_dim
+        y = _ReversibleFunction.apply(x, self.blocks, block_kwargs)
+        return y
 
-        y = torch.cat([x, x], dim=split_dim)
+
+class InputAdapter(nn.Module):
+    def __init__(self, split_dim: int = 0):
+        super().__init__()
+        self.split_dim = split_dim
+
+    def forward(self, x, input_mask: Optional[torch.Tensor] = None):
+        y = torch.cat([x, x], dim=self.split_dim)
         # Apply the optional input masking
         if input_mask is not None:
             if y.dim() - input_mask.dim() > 1:
                 input_mask.unsqueeze(0)
             y += input_mask.unsqueeze(-1)
-        y = _ReversibleFunction.apply(y, self.blocks, block_kwargs)
-        y = torch.stack(y.chunk(2, dim=split_dim)).mean(dim=0)
+        return y
+
+
+class OutputAdapter(nn.Module):
+    def __init__(self, split_dim: int = 0):
+        super().__init__()
+        self.split_dim = split_dim
+
+    def forward(self, x, **_):
+        y = torch.stack(x.chunk(2, dim=self.split_dim)).mean(dim=0)
         return y

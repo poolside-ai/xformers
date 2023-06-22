@@ -197,13 +197,14 @@ class xFormer(torch.nn.Module):
 
         self.encoders: torch.nn.Module
         if self.reversible_encoder:
-            grouped_encoders = []
+            grouped_encoders = [rv.InputAdapter()]
             for i in range(0, len(encoders), self.reversible_encoder):
                 grouped_encoders.append(
                     rv.ReversibleSequence(
                         torch.nn.ModuleList(encoders[i: i + self.reversible_encoder])
                     )
                 )
+            grouped_encoders.append(rv.OutputAdapter())
             self.encoders = torch.nn.ModuleList(grouped_encoders)
         else:
             self.encoders = torch.nn.ModuleList(encoders)
