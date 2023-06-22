@@ -75,7 +75,6 @@ class ReversibleBlock(nn.Module):
     @custom_fwd
     def forward(self, x: torch.Tensor, f_args={}, g_args={}):
         x1, x2 = torch.chunk(x, 2, dim=self.split_dim)
-        y1, y2 = None, None
 
         with torch.no_grad():
             y1 = x1 + self.f(x2, record_rng=self.training, **f_args)
@@ -139,9 +138,8 @@ class _ReversibleFunction(Function):
     def backward(
         ctx, dy
     ):  # pragma: no cover # this is covered, but called directly from C++
-        # we require full precision here
-        y = ctx.y.to(torch.float32)
-        dy = dy.to(torch.float32)
+        y = ctx.y
+        dy = dy.to(torch.float32)  # we need full precision here
         kwargs = ctx.kwargs
         for block in ctx.blocks[::-1]:
             y, dy = block.backward_pass(y, dy, **kwargs)

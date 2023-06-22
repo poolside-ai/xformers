@@ -168,11 +168,11 @@ class xFormer(torch.nn.Module):
                 block = builder(config)  # type: ignore
 
                 # If reversible: extract the reversible sub-parts, else append the block as-is
-                if self.reversible_encoder:
+                if self.reversible_encoder and i > 0:
                     # WARNING: only one pose encoding is saved here (not Focal Transformer compatible for instance)
-                    if block.pose_encoding is not None:
-                        assert self.rev_enc_pose_encoding is None
-                        self.rev_enc_pose_encoding = block.pose_encoding
+                    # if block.pose_encoding is not None:
+                    #     assert self.rev_enc_pose_encoding is None
+                    #     self.rev_enc_pose_encoding = block.pose_encoding
 
                     f, g = xFormerEncoderBlock.get_reversible_layer(config)
                     recipient.append(torch.nn.ModuleList([f, g]))
@@ -197,8 +197,8 @@ class xFormer(torch.nn.Module):
 
         self.encoders: torch.nn.Module
         if self.reversible_encoder:
-            grouped_encoders = [rv.InputAdapter()]
-            for i in range(0, len(encoders), self.reversible_encoder):
+            grouped_encoders = [encoders[0], rv.InputAdapter()]
+            for i in range(1, len(encoders), self.reversible_encoder):
                 grouped_encoders.append(
                     rv.ReversibleSequence(
                         torch.nn.ModuleList(encoders[i: i + self.reversible_encoder])
