@@ -150,9 +150,9 @@ class xFormer(torch.nn.Module):
             if config.reversible:
                 assert isinstance(config, xFormerEncoderConfig)
                 if isinstance(config.reversible, bool):
-                    self.reversible_encoder = config.num_layers + 1
+                    self.reversible_encoder = config.num_layers
                 else:
-                    assert 1 < config.reversible <= config.num_layers + 1
+                    assert 0 < config.reversible <= config.num_layers
                     self.reversible_encoder = config.reversible
 
             # Build up the stack
@@ -174,11 +174,8 @@ class xFormer(torch.nn.Module):
                         assert self.rev_enc_pose_encoding is None
                         self.rev_enc_pose_encoding = block.pose_encoding
 
-                    if (i + 1) % self.reversible_encoder > 0:
-                        f, g = xFormerEncoderBlock.get_reversible_layer(config)
-                        recipient.append(torch.nn.ModuleList([f, g]))
-                    else:
-                        recipient.append(block)
+                    f, g = xFormerEncoderBlock.get_reversible_layer(config)
+                    recipient.append(torch.nn.ModuleList([f, g]))
                 else:
                     recipient.append(block)  # type: ignore
 
@@ -204,13 +201,9 @@ class xFormer(torch.nn.Module):
             for i in range(0, len(encoders), self.reversible_encoder):
                 grouped_encoders.append(
                     rv.ReversibleSequence(
-                        torch.nn.ModuleList(encoders[i: i + self.reversible_encoder - 1]),
-                    ),
+                        torch.nn.ModuleList(encoders[i: i + self.reversible_encoder])
+                    )
                 )
-                try:
-                    grouped_encoders.append(encoders[i + self.reversible_encoder - 1])
-                except IndexError:
-                    break
             self.encoders = torch.nn.ModuleList(grouped_encoders)
         else:
             self.encoders = torch.nn.ModuleList(encoders)

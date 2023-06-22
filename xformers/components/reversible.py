@@ -66,7 +66,7 @@ class Deterministic(nn.Module):
 
 
 class ReversibleBlock(nn.Module):
-    def __init__(self, f: nn.Module, g: nn.Module, split_dim: int = -1):
+    def __init__(self, f: nn.Module, g: nn.Module, split_dim: int):
         super().__init__()
         self.f = Deterministic(f)
         self.g = Deterministic(g)
@@ -74,7 +74,7 @@ class ReversibleBlock(nn.Module):
 
     @custom_fwd
     def forward(self, x: torch.Tensor, f_args={}, g_args={}):
-        x1, x2 = torch.chunk(x, 2, dim=-1)
+        x1, x2 = torch.chunk(x, 2, dim=self.split_dim)
         y1, y2 = None, None
 
         with torch.no_grad():
@@ -139,19 +139,23 @@ class _ReversibleFunction(Function):
     def backward(
         ctx, dy
     ):  # pragma: no cover # this is covered, but called directly from C++
-        y = ctx.y
+        # we require full precision here
+        y = ctx.y.to(torch.float32)
+        dy = dy.to(torch.float32)
         kwargs = ctx.kwargs
         for block in ctx.blocks[::-1]:
             y, dy = block.backward_pass(y, dy, **kwargs)
-        return dy, None, None
+        return dy.to(dy.dtype), None, None
 
 
 class ReversibleSequence(nn.Module):
-    def __init__(self, blocks: nn.ModuleList):
+    def __init__(self, blocks: nn.ModuleList, split_dim: int = 0):
         super().__init__()
 
         # pyre-fixme[23]: Unable to unpack `torch.nn.Module` into 2 values.
-        self.blocks = nn.ModuleList([ReversibleBlock(f, g) for f, g in blocks])
+        self.blocks = nn.ModuleList([ReversibleBlock(
+            f, g, split_dim=split_dim) for f, g in blocks]
+        )
 
     def forward(
         self,
@@ -162,13 +166,14 @@ class ReversibleSequence(nn.Module):
     ):
         f_args, g_args = map(lambda route: kwargs if route else {}, arg_route)
         block_kwargs = {"f_args": f_args, "g_args": g_args}
+        split_dim = self.blocks[0].split_dim
 
-        y = torch.cat([x, x], dim=-1)
+        y = torch.cat([x, x], dim=split_dim)
         # Apply the optional input masking
         if input_mask is not None:
             if y.dim() - input_mask.dim() > 1:
                 input_mask.unsqueeze(0)
             y += input_mask.unsqueeze(-1)
         y = _ReversibleFunction.apply(y, self.blocks, block_kwargs)
-        y = torch.stack(y.chunk(2, dim=-1)).mean(dim=0)
+        y = torch.stack(y.chunk(2, dim=split_dim)).mean(dim=0)
         return y
