@@ -8,7 +8,7 @@ from typing import List, Optional
 
 import torch
 import torch.nn as nn
-from torch.autograd.function import Function
+from torch.autograd.function import Function, once_differentiable
 from torch.cuda.amp import custom_bwd, custom_fwd
 from torch.utils.checkpoint import get_device_states, set_device_states
 
@@ -126,34 +126,50 @@ class ReversibleBlock(nn.Module):
 
 class _ReversibleFunction(Function):
     @staticmethod
-    def forward(ctx, x, blocks, kwargs):
+    def forward(ctx, x, blocks, kwargs, checkpoint):
         ctx.kwargs = kwargs
         for block in blocks:
-            x = block(x, **kwargs)
-        ctx.y = x.detach()
+            x = _ReversibleFunction.sync_cpu_migration(block(x, **kwargs), x)
+        x_detached = x.detach()
+        if checkpoint:
+            x.stream = stream = torch.cuda.Stream()
+            stream.wait_stream(torch.cuda.current_stream())
+            with torch.cuda.stream(stream):
+                x_detached = x_detached.to("cpu", non_blocking=True)
+        ctx.save_for_backward(x_detached)
         ctx.blocks = blocks
         return x
 
     @staticmethod
+    @once_differentiable
     def backward(
         ctx, dy
     ):  # pragma: no cover # this is covered, but called directly from C++
-        y = ctx.y
+        y, = ctx.saved_tensors
+        y = y.to(dy.device)
         dy = dy.to(torch.float32)  # we need full precision here
         kwargs = ctx.kwargs
         for block in ctx.blocks[::-1]:
             y, dy = block.backward_pass(y, dy, **kwargs)
-        return dy, None, None
+        return dy, None, None, None
+
+    @staticmethod
+    def sync_cpu_migration(y: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+        if (stream := getattr(x, "stream", None)) is not None:
+            stream.synchronize()
+            delattr(x, "stream")
+        return y
 
 
 class ReversibleSequence(nn.Module):
-    def __init__(self, blocks: nn.ModuleList, split_dim: int = 0):
+    def __init__(self, blocks: nn.ModuleList, split_dim: int = 0, checkpoint: bool = False):
         super().__init__()
 
         # pyre-fixme[23]: Unable to unpack `torch.nn.Module` into 2 values.
         self.blocks = nn.ModuleList([ReversibleBlock(
             f, g, split_dim=split_dim) for f, g in blocks]
         )
+        self.checkpoint = checkpoint
 
     def forward(
         self,
@@ -164,7 +180,7 @@ class ReversibleSequence(nn.Module):
     ):
         f_args, g_args = map(lambda route: kwargs if route else {}, arg_route)
         block_kwargs = {"f_args": f_args, "g_args": g_args}
-        y = _ReversibleFunction.apply(x, self.blocks, block_kwargs)
+        y = _ReversibleFunction.apply(x, self.blocks, block_kwargs, self.checkpoint)
         return y
 
 
@@ -177,6 +193,7 @@ class InputAdapter(nn.Module):
         y = torch.cat([x, x], dim=self.split_dim)
         # Apply the optional input masking
         if input_mask is not None:
+            assert self.split_dim == -1, "TODO for other dimensions"
             if y.dim() - input_mask.dim() > 1:
                 input_mask.unsqueeze(0)
             y += input_mask.unsqueeze(-1)
@@ -190,4 +207,4 @@ class OutputAdapter(nn.Module):
 
     def forward(self, x, **_):
         y = torch.stack(x.chunk(2, dim=self.split_dim)).mean(dim=0)
-        return y
+        return _ReversibleFunction.sync_cpu_migration(y, x)

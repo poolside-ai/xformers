@@ -66,6 +66,7 @@ class xFormerBlockConfig:
     layer_position: LayerPosition
     use_triton: bool
     reversible: Union[bool, int]
+    gradient_checkpoint: bool
     num_layers: int
 
     def __init__(
@@ -76,7 +77,8 @@ class xFormerBlockConfig:
         block_type: BlockType,
         residual_norm_style: ResidualNormStyle = ResidualNormStyle("post"),
         normalization: NormalizationType = NormalizationType.LayerNorm,
-        reversible: bool = False,
+        reversible: Union[bool, int] = False,
+        gradient_checkpoint: bool = False,
         num_layers: int = 1,
         layer_position: Optional[LayerPosition] = None,
     ):
@@ -85,6 +87,7 @@ class xFormerBlockConfig:
         self.block_type = block_type
         self.residual_norm_style = residual_norm_style
         self.reversible = reversible
+        self.gradient_checkpoint = gradient_checkpoint
         self.num_layers = num_layers
         self.normalization = normalization
 
