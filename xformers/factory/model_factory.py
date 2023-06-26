@@ -196,7 +196,7 @@ class xFormer(torch.nn.Module):
                 grouped_encoders.append(
                     rv.ReversibleSequence(
                         torch.nn.ModuleList(encoders[i: i + self.reversible_encoder]),
-                        checkpoint=config.gradient_checkpoint,
+                        checkpoint=config.activation_checkpoint,
                     )
                 )
             grouped_encoders.append(rv.OutputAdapter())
