@@ -141,7 +141,7 @@ class MultiHeadDispatch(nn.Module):
         )
 
         # Regularization
-        self.resid_drop = nn.Dropout(residual_dropout, inplace=False)
+        self.resid_drop = nn.Dropout(residual_dropout, inplace=True)
 
         # Output projection
         self.proj = (
