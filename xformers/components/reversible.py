@@ -149,8 +149,15 @@ class _ReversibleFunction(Function):
         y = y.to(dy.device)
         dy = dy.to(torch.float32)  # we need full precision here
         kwargs = ctx.kwargs
+        autocast_grad_dtype = torch.get_autocast_gpu_dtype()
+        must_cast_grad = autocast_grad_dtype != torch.float32
         for block in ctx.blocks[::-1]:
             y, dy = block.backward_pass(y, dy, **kwargs)
+            if must_cast_grad:
+                for p in block.parameters():
+                    if p.grad is not None:
+                        p.grad_ = p.grad.to(autocast_grad_dtype).detach()
+                        p.grad = None
         return dy, None, None, None
 
     @staticmethod
