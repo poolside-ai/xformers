@@ -73,19 +73,18 @@ class ReversibleBlock(nn.Module):
         self.split_dim = split_dim
 
     @custom_fwd
+    @torch.no_grad()
     def forward(self, x: torch.Tensor, f_args={}, g_args={}):
         x1, x2 = torch.chunk(x, 2, dim=self.split_dim)
-
-        with torch.no_grad():
-            y1 = x1 + self.f(x2, record_rng=self.training, **f_args)
-            y2 = x2 + self.g(y1, record_rng=self.training, **g_args)
-
-        return torch.cat([y1, y2], dim=self.split_dim)
+        x1.add_(self.f(x2, record_rng=self.training, **f_args))
+        x2.add_(self.g(x1, record_rng=self.training, **g_args))
+        return x
 
     @custom_bwd
     def backward_pass(
         self, y: torch.Tensor, dy: torch.Tensor, f_args={}, g_args={}
-    ):  # pragma: no cover  # this is covered, but called directly from C++
+    ) -> None:  # pragma: no cover  # this is covered, but called directly from C++
+        # TODO: specify the buffer for gy1 and fy2, support output placement in .f and .g
         y1, y2 = torch.chunk(y, 2, dim=self.split_dim)
         del y
 
@@ -98,30 +97,23 @@ class ReversibleBlock(nn.Module):
             torch.autograd.backward(gy1, dy2)
 
         with torch.no_grad():
-            x2 = y2 - gy1
-            del y2, gy1
+            y2.sub_(gy1)
+            del gy1
 
-            dx1 = dy1 + y1.grad
-            del dy1
+            dy1.add_(y1.grad)
             y1.grad = None
 
         with torch.enable_grad():
-            x2.requires_grad = True
-            fx2 = self.f(x2, set_rng=True, **f_args)
-            torch.autograd.backward(fx2, dx1)
+            y2.requires_grad = True
+            fy2 = self.f(y2, set_rng=True, **f_args)
+            torch.autograd.backward(fy2, dy1)
 
         with torch.no_grad():
-            x1 = y1 - fx2
-            del y1, fx2
+            y1.sub_(fy2)
+            del fy2
 
-            dx2 = dy2 + x2.grad
-            del dy2
-            x2.grad = None
-
-            x = torch.cat([x1, x2.detach()], dim=self.split_dim)
-            dx = torch.cat([dx1, dx2], dim=self.split_dim)
-
-        return x, dx
+            dy2.add_(y2.grad)
+            y2.grad = None
 
 
 class _ReversibleFunction(Function):
@@ -129,13 +121,14 @@ class _ReversibleFunction(Function):
     def forward(ctx, x, blocks, kwargs, checkpoint):
         ctx.kwargs = kwargs
         for block in blocks:
-            x = _ReversibleFunction.sync_cpu_migration(block(x, **kwargs), x)
-        x_detached = x.detach()
+            _ReversibleFunction.sync_cpu_migration(block(x, **kwargs))
         if checkpoint:
             x.stream = stream = torch.cuda.Stream()
             stream.wait_stream(torch.cuda.current_stream())
             with torch.cuda.stream(stream):
-                x_detached = x_detached.to("cpu", non_blocking=True)
+                x_detached = x.detach().to("cpu", non_blocking=True)
+        else:
+            x_detached = x.detach().clone()
         ctx.save_for_backward(x_detached)
         ctx.blocks = blocks
         return x
@@ -152,7 +145,7 @@ class _ReversibleFunction(Function):
         autocast_grad_dtype = torch.get_autocast_gpu_dtype()
         must_cast_grad = autocast_grad_dtype != torch.float32
         for block in ctx.blocks[::-1]:
-            y, dy = block.backward_pass(y, dy, **kwargs)
+            block.backward_pass(y, dy, **kwargs)
             if must_cast_grad:
                 for p in block.parameters():
                     if p.grad is not None:
@@ -161,11 +154,10 @@ class _ReversibleFunction(Function):
         return dy, None, None, None
 
     @staticmethod
-    def sync_cpu_migration(y: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    def sync_cpu_migration(x: torch.Tensor) -> None:
         if (stream := getattr(x, "stream", None)) is not None:
             stream.synchronize()
             delattr(x, "stream")
-        return y
 
 
 class ReversibleSequence(nn.Module):
@@ -188,6 +180,7 @@ class ReversibleSequence(nn.Module):
         f_args, g_args = map(lambda route: kwargs if route else {}, arg_route)
         block_kwargs = {"f_args": f_args, "g_args": g_args}
         y = _ReversibleFunction.apply(x, self.blocks, block_kwargs, self.checkpoint)
+        assert y.data_ptr() == x.data_ptr()
         return y
 
 
@@ -213,5 +206,5 @@ class OutputAdapter(nn.Module):
         self.split_dim = split_dim
 
     def forward(self, x, **_):
-        y = torch.stack(x.chunk(2, dim=self.split_dim)).mean(dim=0)
-        return _ReversibleFunction.sync_cpu_migration(y, x)
+        _ReversibleFunction.sync_cpu_migration(x)
+        return torch.stack(x.chunk(2, dim=self.split_dim)).mean(dim=0)
