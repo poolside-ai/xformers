@@ -120,6 +120,7 @@ class _ReversibleFunction(Function):
     @staticmethod
     def forward(ctx, x, blocks, kwargs, checkpoint):
         ctx.kwargs = kwargs
+        ctx.dtype = torch.get_autocast_gpu_dtype()
         for block in blocks:
             _ReversibleFunction.sync_cpu_migration(block(x, **kwargs))
         if checkpoint:
@@ -142,15 +143,19 @@ class _ReversibleFunction(Function):
         y = y.to(dy.device)
         dy = dy.to(torch.float32)  # we need full precision here
         kwargs = ctx.kwargs
-        autocast_grad_dtype = torch.get_autocast_gpu_dtype()
-        must_cast_grad = autocast_grad_dtype != torch.float32
+        must_cast_grad = ctx.dtype != torch.float32
         for block in ctx.blocks[::-1]:
             block.backward_pass(y, dy, **kwargs)
             if must_cast_grad:
-                for p in block.parameters():
-                    if p.grad is not None:
-                        p.grad_ = p.grad.to(autocast_grad_dtype).detach()
-                        p.grad = None
+                with torch.no_grad():
+                    try:
+                        for p in block.parameters():
+                            if p.grad is not None:
+                                p.grad = p.grad.to(ctx.dtype)
+                    except RuntimeError:
+                        # torch is not patched to accept gradients of different dtype
+                        pass
+
         return dy, None, None, None
 
     @staticmethod
