@@ -208,7 +208,6 @@ def layer_norm(
     eps: float = 1e-06,
 ) -> torch.Tensor:
     input_dtype = x.dtype
-    x = x.to(weight.dtype)
 
     global _triton_registered_warnings
 
@@ -239,4 +238,5 @@ def layer_norm(
             x, [x.shape[-1]], weight=weight, bias=bias, eps=eps
         )
 
-    return y.to(input_dtype)
+    assert y.dtype == input_dtype
+    return y
