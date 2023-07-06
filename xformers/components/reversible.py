@@ -118,18 +118,25 @@ class ReversibleBlock(nn.Module):
 
 class _ReversibleFunction(Function):
     @staticmethod
-    def forward(ctx, x, blocks, kwargs, checkpoint):
+    def forward(ctx, x, blocks, kwargs, stream):
         ctx.kwargs = kwargs
         ctx.dtype = torch.get_autocast_gpu_dtype()
         for block in blocks:
-            _ReversibleFunction.sync_cpu_migration(block(x, **kwargs))
-        if checkpoint:
-            x.stream = stream = torch.cuda.Stream()
+            block(x, **kwargs)  # inplace
+        if stream is not None:
+            # wait for the boilerplate to become available
+            torch.cuda.current_stream().wait_stream(stream)
+            # must copy synchronously as this tensor will be overwritten in the next block
+            stream.boilerplate.copy_(x.detach())
+            # wait until the copy finishes
             stream.wait_stream(torch.cuda.current_stream())
             with torch.cuda.stream(stream):
-                x_detached = x.detach().to("cpu", non_blocking=True)
+                x_detached = stream.boilerplate.to("cpu", non_blocking=True)
+                # stack CPU tensors so that we can take the previous in backward()
+                stream.checkpoints.append(x_detached)
         else:
             x_detached = x.detach().clone()
+        ctx.stream = stream
         ctx.save_for_backward(x_detached)
         ctx.blocks = blocks
         return x
@@ -140,7 +147,19 @@ class _ReversibleFunction(Function):
         ctx, dy
     ):  # pragma: no cover # this is covered, but called directly from C++
         y, = ctx.saved_tensors
-        y = y.to(dy.device)
+        if (stream := ctx.stream) is not None:
+            if y is (top := stream.checkpoints.pop() if stream.checkpoints else None):
+                # boilerplate is the same as in the last forward()
+                top = stream.checkpoints.pop()
+            else:
+                # wait until the previously issued copy_() finishes
+                torch.cuda.current_stream().wait_stream(stream)
+            y = stream.boilerplate.clone()
+            if top is not None:
+                # must start overwriting the boilerplate after clone() finishes
+                stream.wait_stream(torch.cuda.current_stream())
+                with torch.cuda.stream(stream):
+                    stream.boilerplate.copy_(top, non_blocking=True)
         dy = dy.to(torch.float32)  # we need full precision here
         kwargs = ctx.kwargs
         must_cast_grad = ctx.dtype != torch.float32
@@ -157,12 +176,6 @@ class _ReversibleFunction(Function):
                         pass
 
         return dy, None, None, None
-
-    @staticmethod
-    def sync_cpu_migration(x: torch.Tensor) -> None:
-        if (stream := getattr(x, "stream", None)) is not None:
-            stream.synchronize()
-            delattr(x, "stream")
 
 
 class ReversibleSequence(nn.Module):
@@ -184,8 +197,18 @@ class ReversibleSequence(nn.Module):
     ):
         f_args, g_args = map(lambda route: kwargs if route else {}, arg_route)
         block_kwargs = {"f_args": f_args, "g_args": g_args}
-        y = _ReversibleFunction.apply(x, self.blocks, block_kwargs, self.checkpoint)
+        if self.checkpoint:
+            try:
+                stream = x.stream
+            except AttributeError:
+                stream = torch.cuda.Stream()
+                stream.boilerplate = torch.empty_like(x)
+                stream.checkpoints = []
+        else:
+            stream = None
+        y = _ReversibleFunction.apply(x, self.blocks, block_kwargs, stream)
         assert y.data_ptr() == x.data_ptr()
+        y.stream = stream
         return y
 
 
@@ -211,5 +234,4 @@ class OutputAdapter(nn.Module):
         self.split_dim = split_dim
 
     def forward(self, x, **_):
-        _ReversibleFunction.sync_cpu_migration(x)
         return torch.stack(x.chunk(2, dim=self.split_dim)).mean(dim=0)
