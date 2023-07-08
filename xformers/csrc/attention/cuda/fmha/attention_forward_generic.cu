@@ -129,6 +129,7 @@ efficient_attention_forward_cutlass(
   auto launchKernel = [&](auto _k, auto kernel_fn) {
     using Kernel = decltype(_k);
     using scalar_t = typename Kernel::scalar_t;
+    using accum_t = typename Kernel::accum_t;
     (void)_k;
 
     if (kernel_launched) {
@@ -233,9 +234,9 @@ efficient_attention_forward_cutlass(
     if (bias.has_value()) {
       CHECK_NOSPARSE_LASTCONTIGUOUS_CUDA((*bias));
       TORCH_CHECK(
-          bias->scalar_type() == CutlassToAtenDtype<scalar_t>::atScalarType(),
-          "invalid dtype for bias - should match query's dtype");
-      p.attn_bias_ptr = (scalar_t*)bias->data_ptr();
+          bias->scalar_type() == CutlassToAtenDtype<accum_t>::atScalarType(),
+          "invalid dtype for bias - should match query*key MMA dtype");
+      p.attn_bias_ptr = (accum_t*)bias->data_ptr();
 
       // assign strides for bias, viewed as
       // (batch_sz, n_heads, n_queries, n_keys)

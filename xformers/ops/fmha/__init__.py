@@ -128,7 +128,7 @@ def memory_efficient_attention(
     :Inputs shape:
 
     - Input tensors must be in format ``[B, M, H, K]``, where B is the batch size, M \
-        the sequence length, H the number of heads, and K the embeding size per head
+        the sequence length, H the number of heads, and K the embedding size per head
 
     - If inputs have dimension 3, it is assumed that the dimensions are ``[B, M, K]`` and ``H=1``
 

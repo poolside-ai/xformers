@@ -131,7 +131,7 @@ struct AttentionKernel {
     scalar_t* query_ptr = nullptr; // [num_queries, num_heads, head_dim]
     scalar_t* key_ptr = nullptr; // [num_keys, num_heads, head_dim]
     scalar_t* value_ptr = nullptr; // [num_keys, num_heads, head_dim_value]
-    scalar_t* attn_bias_ptr = nullptr; // [num_heads, num_queries, num_keys]
+    accum_t* attn_bias_ptr = nullptr; // [num_heads, num_queries, num_keys]
     int32_t* seqstart_q_ptr = nullptr;
     int32_t* seqstart_k_ptr = nullptr;
 
@@ -401,11 +401,11 @@ struct AttentionKernel {
 
     // used for efficient load of bias tile Bij from global to shared memory
     using BiasLoader = TileSmemLoader<
-        scalar_t,
+        accum_t,
         cutlass::MatrixShape<kQueriesPerBlock, kKeysPerBlock>,
         MmaCore::kThreads,
         // input restriction: kv_len has to be a multiple of this value
-        128 / cutlass::sizeof_bits<scalar_t>::value>;
+        128 / cutlass::sizeof_bits<accum_t>::value>;
 
     // Epilogue to store to shared-memory in a format that we can use later for
     // the second matmul
@@ -740,6 +740,7 @@ struct AttentionKernel {
           shared_storage.mm0, thread_id(), my_warp_id, my_lane_id);
 
       typename MM0::Mma::FragmentC accum;
+      static_assert(sizeof(typename MM0::Mma::FragmentC) == 1);
 
       accum.clear();
 
@@ -777,7 +778,7 @@ struct AttentionKernel {
             p.attn_bias_ptr + query_start * p.bias_strideM + iter_key_start,
             {problem_size_0_m, problem_size_0_n},
             thread_id());
-        cutlass::TensorRef<scalar_t, cutlass::layout::RowMajor> bias_tensor_ref(
+        cutlass::TensorRef<accum_t, cutlass::layout::RowMajor> bias_tensor_ref(
             shared_storage.after_mm0.bias.data(),
             cutlass::layout::RowMajor(MM0::ThreadblockShape::kN));
         typename MM0::BiasLoader::SmemTileIterator smem_tile_iter(
