@@ -199,3 +199,28 @@ def test_dropout_parity(shape, amp, bias, activation, p):
                 assert torch.allclose(
                     torch.norm(b.grad), torch.norm(b_.grad), rtol=0.01
                 ), f"{b.grad.norm()} - {b_.grad.norm()}"
+
+
+@pytest.mark.parametrize("bias", [True, False])
+def test_dropout_inplace(bias):
+    """
+    Check that inplace dropout does work inplace.
+    """
+    results = []
+    for inplace in (False, True):
+        torch.random.manual_seed(0)
+        torch.cuda.manual_seed_all(0)
+        shape = (2, 16, 2048)
+
+        x = torch.normal(0, 1, size=shape, device="cuda", requires_grad=True)
+        b = (
+            torch.ones(size=(shape[-1],), device="cuda", requires_grad=True)
+            if bias
+            else None
+        )
+        y = triton_dropout(x, p=0.1, bias=b, inplace=inplace)
+        assert y.data_ptr() == x.data_ptr() or not inplace
+        torch.sum(y).backward()
+        results.append((y, x.grad))
+    assert (results[0][0] == results[1][0]).all()
+    assert (results[0][1] == results[1][1]).all()

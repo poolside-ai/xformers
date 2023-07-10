@@ -740,8 +740,6 @@ struct AttentionKernel {
           shared_storage.mm0, thread_id(), my_warp_id, my_lane_id);
 
       typename MM0::Mma::FragmentC accum;
-      static_assert(sizeof(typename MM0::Mma::FragmentC) == 1);
-
       accum.clear();
 
       auto gemm_k_iterations =
