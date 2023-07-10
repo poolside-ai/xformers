@@ -138,7 +138,6 @@ void gemm_fused_operand_sum_(
       cutlass::reduction::device::ReduceSplitK<ReduceGemmSplitKKernel>;
 
   using ReduceVectorSplitKShape = cutlass::MatrixShape<1, 256>;
-  ;
 
   // This code section describes the epilogue part of the kernel, we use default
   // value

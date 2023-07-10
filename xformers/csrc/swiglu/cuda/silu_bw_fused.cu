@@ -33,25 +33,23 @@ def silu_bw_fused(x1, x2, dx4):
 */
 
 std::tuple<at::Tensor, at::Tensor> silu_bw_fused(
-    const at::Tensor& x1,
-    const at::Tensor& x2,
+    const at::Tensor& x1x2,
     const at::Tensor& dx4) {
   // TODO: Check all params. This would take a lot of lines of code...
-  TORCH_CHECK(x2.dim() == 2);
+  TORCH_CHECK(x1x2.dim() == 3);
   TORCH_CHECK(dx4.dim() == 2);
-  TORCH_CHECK(x2.size(0) == dx4.size(0));
-  TORCH_CHECK(x2.size(1) == dx4.size(1));
+  TORCH_CHECK(x1x2.size(0) == dx4.size(0));
+  TORCH_CHECK(x1x2.size(1) == 2);
+  TORCH_CHECK(x1x2.size(2) == dx4.size(1));
 
-  int64_t B = x2.size(0);
-  int64_t H = x2.size(1);
-  at::Tensor dx1dx2 = at::empty({B, 2, H}, x2.options());
-  at::Tensor dx1 = dx1dx2.select(1, 0);
-  at::Tensor dx2 = dx1dx2.select(1, 1);
-  at::Tensor x4 = at::empty({B, H}, x2.options());
+  int64_t B = x1x2.size(0);
+  int64_t H = x1x2.size(2);
+  at::Tensor x1 = x1x2.select(1, 0);
+  at::Tensor x2 = x1x2.select(1, 1);
   auto iter = at::TensorIteratorConfig()
-                  .add_output(dx1)
-                  .add_output(dx2)
-                  .add_output(x4)
+                  .add_output(x1)
+                  .add_output(x2)
+                  .add_output(dx4)
                   .add_input(x1)
                   .add_input(x2)
                   .add_input(dx4)
@@ -62,7 +60,7 @@ std::tuple<at::Tensor, at::Tensor> silu_bw_fused(
   AT_DISPATCH_FLOATING_TYPES_AND2(
       at::ScalarType::Half,
       at::ScalarType::BFloat16,
-      x2.scalar_type(),
+      x1x2.scalar_type(),
       "silu_bw_fused",
       ([&] {
         using acc_t = typename at::AccumulateType<scalar_t, true>::type;
@@ -81,7 +79,7 @@ std::tuple<at::Tensor, at::Tensor> silu_bw_fused(
                   dx1_, dx2_, x4_};
             });
       }));
-  return std::make_tuple(dx1dx2, x4);
+  return std::make_tuple(x1x2, dx4);
 }
 } // namespace
 

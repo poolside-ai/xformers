@@ -105,10 +105,10 @@ class _SwiGLUFusedFunc(torch.autograd.Function):
     @classmethod
     @torch.cuda.amp.custom_fwd
     def forward(cls, ctx, x, w1, b1, w2, b2, w3, b3):
-        x1, x2, x4 = DualGemmSiluOp.OPERATOR(x, w1, b1, w2, b2)
+        x1x2, x4 = DualGemmSiluOp.OPERATOR(x, w1, b1, w2, b2)
 
         x5 = F.linear(x4, w3, b3)
-        ctx.save_for_backward(x, w1, w2, w3, x1, x2)
+        ctx.save_for_backward(x, w1, w2, w3, x1x2)
         ctx.bias = [b1 is not None, b2 is not None, b3 is not None]
         return x5
 
@@ -126,13 +126,13 @@ class _SwiGLUFusedFunc(torch.autograd.Function):
     @classmethod
     @torch.cuda.amp.custom_bwd
     def backward(cls, ctx, dx5):
-        x, w1, w2, w3, x1, x2 = ctx.saved_tensors
+        x, w1, w2, w3, x1x2 = ctx.saved_tensors
         w1w2 = stack_or_none([w1, w2], dim=0)
 
         dx4 = dx5 @ w3  # 255us (nn)
-        dx1dx2, x4 = torch.ops.xformers.silu_bw_fused(x1, x2, dx4)
+        dx1dx2, x4 = torch.ops.xformers.silu_bw_fused(x1x2, dx4)
         dx1, dx2 = dx1dx2.unbind(1)
-        del x1, x2, dx4
+        del x1x2, dx4
 
         dw3, db3 = cls._linear_bw(dx5, x4, bias=ctx.bias[2])
         del x4, dx5

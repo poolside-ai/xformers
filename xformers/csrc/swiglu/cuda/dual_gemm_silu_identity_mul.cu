@@ -17,7 +17,7 @@
 
 namespace {
 template <typename scalar_t>
-std::tuple<at::Tensor, at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
+std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
     const at::Tensor& x,
     const at::Tensor& w0,
     const c10::optional<at::Tensor>& b0,
@@ -34,8 +34,9 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   int64_t I = x.size(1);
   int64_t H = w0.size(0);
 
-  at::Tensor d0 = at::empty({B, H}, x.options());
-  at::Tensor d1 = at::empty({B, H}, x.options());
+  at::Tensor d0d1 = at::empty({B, 2, H}, x.options());
+  at::Tensor d0 = d0d1.select(1, 0);
+  at::Tensor d1 = d0d1.select(1, 1);
   at::Tensor d2 = at::empty({B, H}, x.options());
 
   // templati-ze the cutlass kernel
@@ -158,10 +159,10 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel initialize failed");
   status = dual_gemm(stream);
   TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel run failed");
-  return std::make_tuple(d0, d1, d2);
+  return std::make_tuple(d0d1, d2);
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
+std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
     const at::Tensor& x,
     const at::Tensor& w0,
     const c10::optional<at::Tensor>& b0,
@@ -183,7 +184,7 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
   }
 }
 
-std::tuple<at::Tensor, at::Tensor, at::Tensor>
+std::tuple<at::Tensor, at::Tensor>
 dual_gemm_silu_identity_mul_autocast(
     const at::Tensor& x,
     const at::Tensor& w0,

@@ -15,7 +15,7 @@
 
 namespace {
 // Kernels implemented in `cuda/`
-std::tuple<at::Tensor, at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
+std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
     const at::Tensor& x,
     const at::Tensor& w0,
     const c10::optional<at::Tensor>& b0,
@@ -28,13 +28,12 @@ std::tuple<at::Tensor, at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
   return op.call(x, w0, b0, w1, b1);
 }
 std::tuple<at::Tensor, at::Tensor> silu_bw_fused(
-    const at::Tensor& x1,
-    const at::Tensor& x2,
+    const at::Tensor& x1x2,
     const at::Tensor& dx4) {
   static auto op = c10::Dispatcher::singleton()
                        .findSchemaOrThrow("xformers::silu_bw_fused", "")
                        .typed<decltype(silu_bw_fused)>();
-  return op.call(x1, x2, dx4);
+  return op.call(x1x2, dx4);
 }
 std::tuple<at::Tensor, at::Tensor> gemm_fused_operand_sum(
     const at::Tensor& a,
@@ -96,13 +95,13 @@ class SwiGLUPackedWeights
       b1 = b1b2.value()[0];
       b2 = b1b2.value()[1];
     }
-    at::Tensor x1, x2, x4;
-    std::tie(x1, x2, x4) = dual_gemm_silu_identity_mul(x, w1, b1, w2, b2);
+    at::Tensor x1x2, x4;
+    std::tie(x1x2, x4) = dual_gemm_silu_identity_mul(x, w1, b1, w2, b2);
     auto x5 = torch::nn::functional::linear(
         x4, w3, b3.has_value() ? b3.value() : at::Tensor());
 
     if (ctx != nullptr) {
-      ctx->save_for_backward({x, w1w2, w3, x1, x2});
+      ctx->save_for_backward({x, w1w2, w3, x1x2});
       ctx->saved_data["has_b1b2"] = b1b2.has_value();
       ctx->saved_data["has_b3"] = b3.has_value();
     }
@@ -120,16 +119,14 @@ class SwiGLUPackedWeights
     auto x = saved[0];
     auto w1w2 = saved[1];
     auto w3 = saved[2];
-    auto x1 = saved[3];
-    auto x2 = saved[4];
+    auto x1x2 = saved[3];
     bool has_b1b2 = ctx->saved_data["has_b1b2"].toBool();
     bool has_b3 = ctx->saved_data["has_b3"].toBool();
     int64_t B = x.size(0);
-    int64_t H = x2.size(1);
+    int64_t H = x1x2.size(2);
     int64_t I = x.size(1);
     int64_t O = dx5.size(1);
-    TORCH_INTERNAL_ASSERT_SHAPE(x1, B, H);
-    TORCH_INTERNAL_ASSERT_SHAPE(x2, B, H);
+    TORCH_INTERNAL_ASSERT_SHAPE(x1x2, B, 2, H);
     TORCH_INTERNAL_ASSERT_SHAPE(dx5, B, O);
     TORCH_INTERNAL_ASSERT_SHAPE(w1w2, 2, H, I);
     TORCH_INTERNAL_ASSERT_SHAPE(w3, O, H);
@@ -138,12 +135,11 @@ class SwiGLUPackedWeights
     at::Tensor dx1dx2, x4;
     TORCH_INTERNAL_ASSERT(dx5.size(1) == w3.size(0));
     auto dx4 = torch::mm(dx5, w3);
-    std::tie(dx1dx2, x4) = silu_bw_fused(x1, x2, dx4);
+    std::tie(dx1dx2, x4) = silu_bw_fused(x1x2, dx4);
     TORCH_INTERNAL_ASSERT_SHAPE(dx1dx2, B, 2, H);
     TORCH_INTERNAL_ASSERT_SHAPE(x4, B, H);
-    x1.reset();
-    x2.reset();
-    dx4.reset();
+    TORCH_INTERNAL_ASSERT(dx1dx2.data_ptr() == x1x2.data_ptr());
+    TORCH_INTERNAL_ASSERT(x4.data_ptr() == dx4.data_ptr());
 
     at::Tensor db3, dw3;
 

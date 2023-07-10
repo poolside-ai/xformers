@@ -276,11 +276,8 @@ efficient_attention_forward_cutlass(
 
   // uint64_t -> int64_t bitwise casting as PyTorch don't support uint64_t
   // so just fake it as a int64_t
-  int64_t seed, offset;
-  if (use_dropout) {
-    std::memcpy(&seed, &rng_engine_inputs.seed_, sizeof(seed));
-    std::memcpy(&offset, &rng_engine_inputs.offset_.val, sizeof(offset));
-  }
+  int64_t seed = static_cast<int64_t>(rng_engine_inputs.seed_.val);
+  int64_t offset  = static_cast<int64_t>(rng_engine_inputs.offset_.val);
 
   return std::make_tuple(res, logsumexp, seed, offset);
 #endif
