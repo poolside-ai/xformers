@@ -75,6 +75,7 @@ class ReversibleBlock(nn.Module):
     @custom_fwd
     @torch.no_grad()
     def forward(self, x: torch.Tensor, f_args={}, g_args={}):
+        assert x.dtype == torch.get_autocast_gpu_dtype()
         x1, x2 = torch.chunk(x, 2, dim=self.split_dim)
         x1.add_(self.f(x2, record_rng=self.training, **f_args))
         x2.add_(self.g(x1, record_rng=self.training, **g_args))
@@ -84,6 +85,7 @@ class ReversibleBlock(nn.Module):
     def backward_pass(
         self, y: torch.Tensor, dy: torch.Tensor, f_args={}, g_args={}
     ) -> None:  # pragma: no cover  # this is covered, but called directly from C++
+        assert y.dtype == torch.get_autocast_gpu_dtype()
         # TODO: specify the buffer for gy1 and fy2, support output placement in .f and .g
         y1, y2 = torch.chunk(y, 2, dim=self.split_dim)
         del y
