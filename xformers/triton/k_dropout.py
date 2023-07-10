@@ -36,7 +36,7 @@ _configs = [
 @triton.heuristics({"SIZE_RAND_BLOCK": lambda args: args["BLOCK_N"] * args["BLOCK_M"]})
 @triton.autotune(
     configs=_configs,
-    key=["M", "N", "is_fp16"],
+    key=["M", "N"],
 )
 @triton.jit
 def k_dropout_fw(
@@ -44,7 +44,6 @@ def k_dropout_fw(
     stride,
     M, N,
     p: tl.constexpr,
-    is_fp16: tl.constexpr,  # autotune
     ACTIVATION: tl.constexpr,
     # Meta-parameters
     BLOCK_M: tl.constexpr,
@@ -117,7 +116,7 @@ def k_dropout_fw(
 @triton.heuristics({"SIZE_RAND_BLOCK": lambda args: args["BLOCK_N"] * args["BLOCK_M"]})
 @triton.autotune(
     configs=_configs,
-    key=["M", "N", "is_fp16"],
+    key=["M", "N"],
 )
 @triton.jit
 def k_dropout_bw(
@@ -126,7 +125,6 @@ def k_dropout_bw(
     stride_grad, stride_inputs,
     M, N,
     p: tl.constexpr,
-    is_fp16: tl.constexpr,  # autotune
     ACTIVATION: tl.constexpr,
     # Meta-parameters
     BLOCK_M: tl.constexpr,  # heuristics

@@ -17,14 +17,14 @@ from xformers.components.activations import Activation, build_activation
 from xformers.triton.k_activations import get_triton_activation_index
 from xformers.triton.k_dropout import k_dropout_bw, k_dropout_fw
 
-BLOCK_M = 32
-BLOCK_N = 64  # NOTE: This should ideally be GPU dependent, big impact on perf
+BLOCK_M = 64
+BLOCK_N = 128  # NOTE: This should ideally be GPU dependent, big impact on perf
 
 
 # Helper to handle the SPMD launch grid and error cases
 class _dropout(torch.autograd.Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.float16)
+    @custom_fwd
     def forward(ctx, x, p, bias, activation, trainable_bias, inplace):
         # Soft-flatten an hypothetical 3rd dimension
         x_ = x.reshape(-1, x.shape[-1]).contiguous()
@@ -56,7 +56,6 @@ class _dropout(torch.autograd.Function):
             y.stride(0),
             M, N,
             p,
-            x.dtype == torch.float16,
             USE_BIAS=bias is not None,
             ACTIVATION=activation,
             BLOCK_M=BLOCK_M,
@@ -134,7 +133,6 @@ class _dropout(torch.autograd.Function):
             grad_out_.stride(0), inputs.stride(0),
             M, N,
             ctx.p,
-            grad_in.dtype == torch.float16,
             USE_BIAS=bias is not None,
             ACTIVATION=ctx.activation,
             TRAINABLE_BIAS=ctx.trainable_bias,
