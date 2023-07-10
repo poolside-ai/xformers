@@ -330,14 +330,14 @@ struct AttentionBackwardKernel {
     // used for efficient load of bias tile (Bij) from global memory to shared
     // memory
     using BiasLoader = TileSmemLoader<
-        scalar_t,
+        accum_t,
         // Bij is applied to transposed attn matrix tile (Pij.T). Bij is loaded
         // row-major but needs to have transposed shape so we get the same
         // elements.
         cutlass::MatrixShape<ThreadblockShape::kN, ThreadblockShape::kM>,
         MmaCore::kThreads,
         // input restriction: kv_len has to be a multiple of this value
-        128 / cutlass::sizeof_bits<scalar_t>::value>;
+        128 / cutlass::sizeof_bits<accum_t>::value>;
 
     // Epilogue to store to shared-memory in a format that we can use later for
     // the second matmul
@@ -631,7 +631,7 @@ struct AttentionBackwardKernel {
     scalar_t* query_ptr = nullptr; // [Mq, nH, K]
     scalar_t* key_ptr = nullptr; // [Mk, nH, K]
     scalar_t* value_ptr = nullptr; // [Mk, nH, Kv]
-    scalar_t* bias_ptr = nullptr;
+    accum_t* bias_ptr = nullptr;
     lse_scalar_t* logsumexp_ptr = nullptr; // [nH, Mq]
     scalar_t* output_ptr = nullptr; // [Mq, nH, Kv]
     scalar_t* grad_output_ptr = nullptr; // [Mq, nH, Kv]
@@ -1583,7 +1583,7 @@ struct AttentionBackwardKernel {
             p.bias_ptr + query_start * p.bias_strideM + key_start,
             {num_queries_in_block, num_keys_in_block},
             thread_id);
-        cutlass::TensorRef<scalar_t, cutlass::layout::RowMajor> bias_tensor_ref(
+        cutlass::TensorRef<accum_t, cutlass::layout::RowMajor> bias_tensor_ref(
             shared_storage.bias().data(),
             cutlass::layout::RowMajor(MatmulQK::ThreadblockShape::kM));
         typename MatmulQK::BiasLoader::SmemTileIterator smem_tile_iter(
