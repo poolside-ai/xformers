@@ -160,6 +160,7 @@ class xFormerEncoderBlock(torch.nn.Module):
         if (
             config.residual_norm_style == ResidualNormStyle.Pre
             and config.layer_position.is_last()
+            and not config.custom_tail
         ):
             self.wrap_ff = PostNorm(
                 config.dim_model,

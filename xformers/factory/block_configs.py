@@ -68,6 +68,7 @@ class xFormerBlockConfig:
     reversible: Union[bool, int]
     activation_checkpoint: bool
     num_layers: int
+    custom_tail: bool
 
     def __init__(
         self,
@@ -81,6 +82,7 @@ class xFormerBlockConfig:
         activation_checkpoint: bool = False,
         num_layers: int = 1,
         layer_position: Optional[LayerPosition] = None,
+        custom_tail: bool = False,
     ):
 
         self.dim_model = dim_model
@@ -90,6 +92,7 @@ class xFormerBlockConfig:
         self.activation_checkpoint = activation_checkpoint
         self.num_layers = num_layers
         self.normalization = normalization
+        self.custom_tail = custom_tail
 
         # Fill in possible gaps in the config for subparts of the block
         self.feedforward_config = generate_matching_config(
