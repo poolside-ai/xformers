@@ -164,14 +164,12 @@ class xFormer(torch.nn.Module):
                 if config != stack_configs[-1] or i < config.num_layers - 1:
                     config.layer_position.mark_not_last()
 
-                block = builder(config)  # type: ignore
-
                 # If reversible: extract the reversible sub-parts, else append the block as-is
                 if self.reversible_encoder and i > 0:
                     f, g = xFormerEncoderBlock.get_reversible_layer(config)
                     recipient.append(torch.nn.ModuleList([f, g]))
                 else:
-                    recipient.append(block)  # type: ignore
+                    recipient.append(builder(config))  # type: ignore
 
         # Tie embedding weights, if requested and possible
         assert (
