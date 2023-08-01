@@ -162,20 +162,9 @@ class _ReversibleFunction(Function):
                 stream.wait_stream(torch.cuda.current_stream())
                 with torch.cuda.stream(stream):
                     stream.boilerplate.copy_(top, non_blocking=True)
-        dy = dy.to(torch.float32)  # we need full precision here
         kwargs = ctx.kwargs
-        must_cast_grad = ctx.dtype != torch.float32
         for block in ctx.blocks[::-1]:
             block.backward_pass(y, dy, **kwargs)
-            if must_cast_grad:
-                with torch.no_grad():
-                    try:
-                        for p in block.parameters():
-                            if p.grad is not None:
-                                p.grad = p.grad.to(ctx.dtype)
-                    except RuntimeError:
-                        # torch is not patched to accept gradients of different dtype
-                        pass
 
         return dy, None, None, None
 
