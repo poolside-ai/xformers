@@ -103,7 +103,7 @@ class ReversibleBlock(nn.Module):
             del gy1
 
             dy1.add_(y1.grad)
-            y1.grad = None
+            y1.grad.zero_()
 
         with torch.enable_grad():
             y2.requires_grad = True
@@ -115,7 +115,7 @@ class ReversibleBlock(nn.Module):
             del fy2
 
             dy2.add_(y2.grad)
-            y2.grad = None
+            y2.grad.zero_()
 
 
 class _ReversibleFunction(Function):
