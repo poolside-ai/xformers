@@ -48,11 +48,10 @@ def fetch_requirements():
 
 
 def get_local_version_suffix() -> str:
-    date_suffix = datetime.datetime.now().strftime("%Y%m%d")
     git_hash = subprocess.check_output(
         ["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).parent
     ).decode("ascii")[:-1]
-    return f"+{git_hash}.d{date_suffix}"
+    return f"+{git_hash}"
 
 
 def write_version_file(version: str):
