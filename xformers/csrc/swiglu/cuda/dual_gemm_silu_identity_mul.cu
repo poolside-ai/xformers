@@ -158,7 +158,7 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   status = dual_gemm.initialize(arguments, (uint8_t*)workspace.data_ptr());
   TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel initialize failed");
   status = dual_gemm(stream);
-  TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel run failed");
+  TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel run failed: ", cutlass::cutlassGetStatusString(status));
   return std::make_tuple(d0d1, d2);
 }
 
