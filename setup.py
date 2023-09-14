@@ -186,12 +186,25 @@ def get_flash_attention_extensions(cuda_version: int, extra_compile_args):
 def get_extensions():
     extensions_dir = os.path.join("xformers", "csrc")
 
-    sources = glob.glob(os.path.join(extensions_dir, "**", "*.cpp"), recursive=True)
-    source_cuda = glob.glob(os.path.join(extensions_dir, "**", "*.cu"), recursive=True)
+    sources = set(
+        glob.glob(os.path.join(extensions_dir, "**", "*.cpp"), recursive=True)
+    )
+    sources_cuda = set(
+        glob.glob(os.path.join(extensions_dir, "**", "*.cu"), recursive=True)
+    )
+    sources_cutlass3 = set(
+        glob.glob(os.path.join(extensions_dir, "swiglu", "*.cpp"), recursive=True)
+    )
+    sources_cuda_cutlass3 = set(
+        glob.glob(os.path.join(extensions_dir, "swiglu", "*.cu"), recursive=True)
+    )
+    sources -= sources_cutlass3
 
     sputnik_dir = os.path.join(this_dir, "third_party", "sputnik")
     cutlass_dir = os.path.join(this_dir, "third_party", "cutlass", "include")
     cutlass_examples_dir = os.path.join(this_dir, "third_party", "cutlass", "examples")
+    cutlass3_dir = os.path.join(this_dir, "third_party", "cutlass3", "include")
+    cutlass3_examples_dir = os.path.join(this_dir, "third_party", "cutlass3", "examples")
     if not os.path.exists(cutlass_dir):
         raise RuntimeError(
             f"CUTLASS submodule not found at {cutlass_dir}. "
@@ -211,6 +224,7 @@ def get_extensions():
         extra_compile_args["cxx"].append("-fopenmp")
 
     include_dirs = [extensions_dir]
+    include_dirs_cutlass3 = [extensions_dir]
     ext_modules = []
     cuda_version = None
 
@@ -220,8 +234,10 @@ def get_extensions():
         or os.getenv("TORCH_CUDA_ARCH_LIST", "") != ""
     ):
         extension = CUDAExtension
-        sources += source_cuda
+        sources = sources.union(sources_cuda)
+        sources_cutlass3 = sources_cutlass3.union(sources_cuda_cutlass3)
         include_dirs += [sputnik_dir, cutlass_dir, cutlass_examples_dir]
+        include_dirs_cutlass3 += [sputnik_dir, cutlass3_dir, cutlass3_examples_dir]
         nvcc_flags = [
             "-DHAS_PYTORCH",
             "--use_fast_math",
@@ -263,6 +279,16 @@ def get_extensions():
             "xformers._C",
             sorted(sources),
             include_dirs=[os.path.abspath(p) for p in include_dirs],
+            define_macros=define_macros,
+            extra_compile_args=extra_compile_args,
+        )
+    )
+
+    ext_modules.append(
+        extension(
+            "xformers._C_cutlass3",
+            sorted(sources_cutlass3),
+            include_dirs=[os.path.abspath(p) for p in include_dirs_cutlass3],
             define_macros=define_macros,
             extra_compile_args=extra_compile_args,
         )
