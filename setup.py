@@ -196,9 +196,10 @@ def get_extensions():
         glob.glob(os.path.join(extensions_dir, "swiglu", "*.cpp"), recursive=True)
     )
     sources_cuda_cutlass3 = set(
-        glob.glob(os.path.join(extensions_dir, "swiglu", "*.cu"), recursive=True)
+        glob.glob(os.path.join(extensions_dir, "swiglu", "cuda", "*.cu"), recursive=True)
     )
     sources -= sources_cutlass3
+    sources_cuda -= sources_cuda_cutlass3
 
     sputnik_dir = os.path.join(this_dir, "third_party", "sputnik")
     cutlass_dir = os.path.join(this_dir, "third_party", "cutlass", "include")
