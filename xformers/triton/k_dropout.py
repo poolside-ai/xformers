@@ -24,23 +24,24 @@ from xformers.triton.k_activations import (
 )
 
 _configs = [
-    triton.Config({}, num_warps=1),
-    triton.Config({}, num_warps=2),
-    triton.Config({}, num_warps=4),
+    # the lower end warps are never chosen in practice
+    # triton.Config({}, num_warps=1),
+    # triton.Config({}, num_warps=2),
+    # triton.Config({}, num_warps=4),
     triton.Config({}, num_warps=8),
     triton.Config({}, num_warps=16),
 ]
 
 
 # fmt: off
-@triton.heuristics({"SIZE_RAND_BLOCK": lambda args: args["BLOCK_N"] * args["BLOCK_M"]})
 @triton.autotune(
     configs=_configs,
     key=["M", "N"],
 )
+@triton.heuristics({"SIZE_RAND_BLOCK": lambda args: args["BLOCK_N"] * args["BLOCK_M"]})
 @triton.jit
 def k_dropout_fw(
-    Y, X, BIAS, SEEDS,
+    X, BIAS, SEEDS,
     stride,
     M, N,
     p: tl.constexpr,
@@ -53,8 +54,7 @@ def k_dropout_fw(
 ):
     """
     Apply dropout on an input tensor
-    Y : Output  (M, N)
-    X : Input   (M, N)
+    X : IO      (M, N)
     BIAS        (N,)
     SEEDS       (M,)
     p : dropout probability
@@ -69,7 +69,6 @@ def k_dropout_fw(
 
     # pointers starting point
     x_ptrs = X + rows[:, None] * stride + cols[None, :]
-    y_ptrs = Y + rows[:, None] * stride + cols[None, :]
 
     # good to go, start the layer computations
     col_mask = cols[None, :] < N
@@ -109,7 +108,7 @@ def k_dropout_fw(
     keep = tl.view(keep_mask, x.shape)
     output = tl.where(keep, (x * p_scale).to(x.dtype), 0.)
 
-    tl.store(y_ptrs, output, mask=block_mask)  # output
+    tl.store(x_ptrs, output, mask=block_mask)  # output
 
 
 # fmt: off

@@ -28,7 +28,8 @@ class _dropout(torch.autograd.Function):
     def forward(ctx, x, p, bias, activation, trainable_bias, inplace):
         # Soft-flatten an hypothetical 3rd dimension
         x_ = x.reshape(-1, x.shape[-1]).contiguous()
-        y = x_ if inplace else torch.empty_like(x_)
+        if not inplace:
+            x_ = x_.clone()
         M, N = x_.shape
 
         assert bias is None or (bias.dtype == x.dtype and bias.shape[0] == N)
@@ -43,17 +44,31 @@ class _dropout(torch.autograd.Function):
         N_BLOCK_N = triton.cdiv(N, BLOCK_N)
 
         # Generate one seed per sample
-        # seed max is int32 max for positive numbers: 2**16
-        seeds = torch.randint(65536, (N_BLOCK_N,), device=x.device, dtype=torch.int32)
+        seeds = torch.randint(1 << 16, (N_BLOCK_N,), device=x.device, dtype=torch.int32)
 
         # fmt: off
         bias_ptr = bias if bias is not None else x_  # Possibly not being used
 
+        if not k_dropout_fw.cache:
+            # we execute the operation inplace, and it will otherwise damage x_
+            k_dropout_fw[grid](
+                x_.clone().detach(),
+                bias_ptr,
+                seeds,
+                x_.stride(0),
+                M, N,
+                p,
+                USE_BIAS=bias is not None,
+                ACTIVATION=activation,
+                BLOCK_M=BLOCK_M,
+                BLOCK_N=BLOCK_N,
+            )
+
         k_dropout_fw[grid](
-            y, x_,
+            x_,
             bias_ptr,
             seeds,
-            y.stride(0),
+            x_.stride(0),
             M, N,
             p,
             USE_BIAS=bias is not None,
@@ -63,24 +78,20 @@ class _dropout(torch.autograd.Function):
         )
         # fmt: on
 
-        if activation is not None:
-            ctx.save_for_backward(seeds, bias, x)
-        else:
-            ctx.save_for_backward(seeds, bias, None)
-
+        ctx.save_for_backward(seeds, bias, x if activation is not None else None)
         ctx.trainable_bias = bias is not None and trainable_bias
         ctx.activation = activation
         ctx.p = p
         ctx.inplace = inplace
 
-        return y.reshape_as(x)
+        return x_.reshape_as(x)
 
     @staticmethod
     @custom_bwd
     def backward(
         ctx, grad_out
     ):  # pragma: no cover  # This is covered, but called from C++ and not tracked
-        (seeds, bias, inputs) = ctx.saved_tensors
+        seeds, bias, inputs = ctx.saved_tensors
 
         # Soft-flatten an hypothetical 3rd dimension
         grad_out_ = grad_out.reshape(-1, grad_out.shape[-1]).contiguous()
@@ -97,8 +108,8 @@ class _dropout(torch.autograd.Function):
             inputs = inputs.reshape(-1, N)
 
         # We split the problem in tiles:
-        # - over M there will be a follow up reduction
-        # - over N we compromise in between trying to use as much memory paralellism as possible,
+        # - over M there will be a follow-up reduction
+        # - over N we compromise in between trying to use as much memory parallelism as possible,
         # (fill in the warps, there are 32 threads per warps, and 4 warps default), and not being too
         # big because of register spilling
         N_BLOCKS_M = triton.cdiv(M, BLOCK_M)
