@@ -124,6 +124,7 @@ def k_dropout_bw(
     stride_grad, stride_inputs,
     M, N,
     p: tl.constexpr,
+    INPLACE: tl.constexpr,
     ACTIVATION: tl.constexpr,
     # Meta-parameters
     BLOCK_M: tl.constexpr,  # heuristics
@@ -150,8 +151,12 @@ def k_dropout_bw(
     cols = col_id * BLOCK_N + tl.arange(0, BLOCK_N)
 
     # pointers starting point
-    grad_out_ptrs = GRAD_OUT + rows[:, None] * stride_grad + cols[None, :]
     grad_in_ptrs = GRAD_IN + rows[:, None] * stride_grad + cols[None, :]
+    if INPLACE:
+        grad_out_ptrs = grad_in_ptrs
+    else:
+        grad_out_ptrs = GRAD_OUT + rows[:, None] * stride_grad + cols[None, :]
+
     input_ptrs = INPUTS + rows[:, None] * stride_inputs + cols[None, :]
 
     # now go over the tiles
@@ -202,7 +207,5 @@ def k_dropout_bw(
     # optionally accumulate the bias gradient
     if TRAINABLE_BIAS:
         grad_bias += tl.sum(output, axis=0)
-
-    if TRAINABLE_BIAS:
         grad_bias_ptr = GRAD_BIAS + row_id * N + cols
         tl.store(grad_bias_ptr, grad_bias, mask=cols < N)

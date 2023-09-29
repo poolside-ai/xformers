@@ -88,8 +88,8 @@ class SwiGLUPackedWeights
       const at::Tensor w3,
       const c10::optional<at::Tensor>& b3) {
     at::AutoDispatchBelowADInplaceOrView g;
-    auto w1 = w1w2[0];
-    auto w2 = w1w2[1];
+    const auto &w1 = w1w2[0];
+    const auto &w2 = w1w2[1];
     c10::optional<at::Tensor> b1, b2;
     if (b1b2.has_value()) {
       b1 = b1b2.value()[0];

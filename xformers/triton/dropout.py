@@ -25,10 +25,10 @@ BLOCK_N = 128  # NOTE: This should ideally be GPU dependent, big impact on perf
 class _dropout(torch.autograd.Function):
     @staticmethod
     @custom_fwd
-    def forward(ctx, x, p, bias, activation, trainable_bias, inplace):
+    def forward(ctx, x, p, bias, activation, trainable_bias, inplace_fwd, inplace_bwd):
         # Soft-flatten an hypothetical 3rd dimension
         x_ = x.reshape(-1, x.shape[-1]).contiguous()
-        if not inplace:
+        if not inplace_fwd:
             x_ = x_.clone()
         M, N = x_.shape
 
@@ -82,7 +82,7 @@ class _dropout(torch.autograd.Function):
         ctx.trainable_bias = bias is not None and trainable_bias
         ctx.activation = activation
         ctx.p = p
-        ctx.inplace = inplace
+        ctx.inplace = inplace_bwd
 
         return x_.reshape_as(x)
 
@@ -144,6 +144,7 @@ class _dropout(torch.autograd.Function):
             grad_out_.stride(0), inputs.stride(0),
             M, N,
             ctx.p,
+            INPLACE=ctx.inplace,
             USE_BIAS=bias is not None,
             ACTIVATION=ctx.activation,
             TRAINABLE_BIAS=ctx.trainable_bias,
@@ -156,6 +157,7 @@ class _dropout(torch.autograd.Function):
             grad_in.reshape_as(grad_out),
             None,
             torch.sum(grad_bias, dim=0) if ctx.trainable_bias else None,
+            None,
             None,
             None,
             None,
@@ -211,7 +213,8 @@ class FusedDropoutBias(torch.nn.Module):
         p: float,
         bias_shape: Optional[int],
         activation: Optional[Activation] = None,
-        inplace: bool = False,
+        inplace_fwd: bool = False,
+        inplace_bwd: bool = False,
     ) -> None:
         super().__init__()
 
@@ -230,7 +233,8 @@ class FusedDropoutBias(torch.nn.Module):
 
         self.activation = get_triton_activation_index(self.activation_type)
         self.activation_pytorch = build_activation(self.activation_type)
-        self.inplace = inplace
+        self.inplace_fwd = inplace_fwd
+        self.inplace_bwd = inplace_bwd
 
     def init_weights(self, *args, **kwargs):
         with torch.no_grad():
@@ -255,4 +259,12 @@ class FusedDropoutBias(torch.nn.Module):
             return torch.nn.functional.dropout(x, p) if p > 0.0 else x
 
         # The normal, Triton-backed path
-        return _dropout.apply(x, p, self.bias, self.activation, True, self.inplace)
+        return _dropout.apply(
+            x,
+            p,
+            self.bias,
+            self.activation,
+            True,
+            self.inplace_fwd,
+            self.inplace_bwd,
+        )
