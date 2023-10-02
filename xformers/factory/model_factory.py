@@ -17,7 +17,7 @@ from xformers.factory.block_configs import (
     xFormerDecoderConfig,
     xFormerEncoderConfig,
 )
-from xformers.factory.block_factory import xFormerDecoderBlock, xFormerEncoderBlock
+from xformers.factory.block_factory import xFormerDecoderBlock, xFormerEncoderBlock, xFormerEmbeddingBlock
 from xformers.factory.weight_init import get_weight_init_fn, xFormerWeightInit
 
 logger = logging.getLogger("xformers")
@@ -166,11 +166,16 @@ class xFormer(torch.nn.Module):
                     config.layer_position.mark_not_last()
 
                 # If reversible: extract the reversible sub-parts, else append the block as-is
-                if self.reversible_encoder and i > 0:
+                if self.reversible_encoder:
+                    if i == 0:
+                        recipient.append(torch.nn.Sequential([
+                            xFormerEmbeddingBlock.from_config(config),
+                            rv.InputAdapter(),
+                        ]))
                     f, g = xFormerEncoderBlock.get_reversible_layer(config)
                     recipient.append(torch.nn.ModuleList([f, g]))
                 else:
-                    recipient.append(builder(config, compute_attention=False))  # type: ignore
+                    recipient.append(builder(config))  # type: ignore
 
         # Tie embedding weights, if requested and possible
         assert (
@@ -190,7 +195,7 @@ class xFormer(torch.nn.Module):
 
         self.encoders: torch.nn.Module
         if self.reversible_encoder:
-            grouped_encoders = [encoders[0], rv.InputAdapter()]
+            grouped_encoders = [encoders[0]]
             for i in range(1, len(encoders), self.reversible_encoder):
                 grouped_encoders.append(
                     rv.ReversibleSequence(
