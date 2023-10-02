@@ -98,9 +98,11 @@ class xFormerEncoderBlock(torch.nn.Module):
     def __init__(self, config: xFormerEncoderConfig, **kwargs):
         super().__init__()
 
-        self.reversible_f = None
-        self.reversible_g = None
-        self.residual_norm_style = config.residual_norm_style
+        self.compute_attention = kwargs.pop("compute_attention", True)
+        if self.compute_attention:
+            self.reversible_f = None
+            self.reversible_g = None
+            self.residual_norm_style = config.residual_norm_style
         self.dim_model = config.dim_model
 
         # If this layer is the first one, and a pose encoding has been requested
@@ -123,51 +125,52 @@ class xFormerEncoderBlock(torch.nn.Module):
         else:
             self.pose_encoding = None
 
-        if config.residual_norm_style == ResidualNormStyle.DeepNorm:
-            # Just use the layer norm coefficient here,
-            # the init will be handled at the xformers level (knows about encoder and decoder blocks)
-            deep_norm_coefficients, _ = get_deepnorm_coefficients(
-                encoder_layers=config.num_layers, decoder_layers=0
-            )
-            assert deep_norm_coefficients is not None
-            residual_scale = deep_norm_coefficients.alpha
-        else:
-            residual_scale = 1.0
+        if self.compute_attention:
+            if config.residual_norm_style == ResidualNormStyle.DeepNorm:
+                # Just use the layer norm coefficient here,
+                # the init will be handled at the xformers level (knows about encoder and decoder blocks)
+                deep_norm_coefficients, _ = get_deepnorm_coefficients(
+                    encoder_layers=config.num_layers, decoder_layers=0
+                )
+                assert deep_norm_coefficients is not None
+                residual_scale = deep_norm_coefficients.alpha
+            else:
+                residual_scale = 1.0
 
-        # mini helper, builds a normalization layer with the right Pre/Post config, residuals, and the right dimensions
-        ln_factory = _get_ln_factory(
-            config.dim_model,
-            config.residual_norm_style,
-            use_triton=config.use_triton,
-            residual=True,
-            residual_scale=residual_scale,
-            normalization=config.normalization,
-        )
-
-        mha = build_multi_head_attention(config.multi_head_config)
-        feedforward = build_feedforward(asdict(config.feedforward_config))
-
-        # Expose attention specific capabilities
-        self.supports_attention_mask = mha.attention.supports_attention_mask
-        self.requires_same_k_q_dimensions = mha.attention.requires_same_k_q_dimensions
-        self.causal = (
-            mha.attention.causal if hasattr(mha.attention, "causal") else False
-        )
-
-        # Wrappers handle the different layer norm styles (pre- and post-) and the residual path
-        self.wrap_att = ln_factory(mha)
-        self.wrap_ff: Union[Residual, PostNorm] = ln_factory(feedforward)
-        if (
-            config.residual_norm_style == ResidualNormStyle.Pre
-            and config.layer_position.is_last()
-            and not config.custom_tail
-        ):
-            self.wrap_ff = PostNorm(
+            # mini helper, builds a normalization layer with the right Pre/Post config, residuals, and the right dimensions
+            ln_factory = _get_ln_factory(
                 config.dim_model,
-                self.wrap_ff,
-                normalization=config.normalization,
+                config.residual_norm_style,
                 use_triton=config.use_triton,
+                residual=True,
+                residual_scale=residual_scale,
+                normalization=config.normalization,
             )
+
+            mha = build_multi_head_attention(config.multi_head_config)
+            feedforward = build_feedforward(asdict(config.feedforward_config))
+
+            # Expose attention specific capabilities
+            self.supports_attention_mask = mha.attention.supports_attention_mask
+            self.requires_same_k_q_dimensions = mha.attention.requires_same_k_q_dimensions
+            self.causal = (
+                mha.attention.causal if hasattr(mha.attention, "causal") else False
+            )
+
+            # Wrappers handle the different layer norm styles (pre- and post-) and the residual path
+            self.wrap_att = ln_factory(mha)
+            self.wrap_ff: Union[Residual, PostNorm] = ln_factory(feedforward)
+            if (
+                config.residual_norm_style == ResidualNormStyle.Pre
+                and config.layer_position.is_last()
+                and not config.custom_tail
+            ):
+                self.wrap_ff = PostNorm(
+                    config.dim_model,
+                    self.wrap_ff,
+                    normalization=config.normalization,
+                    use_triton=config.use_triton,
+                )
 
         # Simplicial embeddings are only used if specified, and on the last layer
         self.simplicial_embedding: Optional[SimplicialEmbedding] = None
@@ -185,8 +188,8 @@ class xFormerEncoderBlock(torch.nn.Module):
             )
 
     @classmethod
-    def from_config(cls, config: xFormerEncoderConfig):
-        return cls(config)
+    def from_config(cls, config: xFormerEncoderConfig, **kwargs):
+        return cls(config, **kwargs)
 
     @staticmethod
     def get_reversible_layer(config) -> Tuple[nn.Module, nn.Module]:
@@ -220,17 +223,18 @@ class xFormerEncoderBlock(torch.nn.Module):
             if hasattr(self, "embedding_projector"):
                 x = self.embedding_projector(x)
 
-        # Handle the optional input masking, differs on Q, K, V
-        if input_mask is not None:
-            q = x
-            k = x * input_mask.unsqueeze(-1)
-            v = k
-        else:
-            q, k, v = x, x, x
+        if self.compute_attention:
+            # Handle the optional input masking, differs on Q, K, V
+            if input_mask is not None:
+                q = x
+                k = x * input_mask.unsqueeze(-1)
+                v = k
+            else:
+                q, k, v = x, x, x
 
-        # Pre/Post norms and residual paths are already handled
-        x = self.wrap_att(inputs=[q, k, v], att_mask=att_mask)
-        x = self.wrap_ff(inputs=[x])
+            # Pre/Post norms and residual paths are already handled
+            x = self.wrap_att(inputs=[q, k, v], att_mask=att_mask)
+            x = self.wrap_ff(inputs=[x])
 
         # Optional simplicial embeddings
         if self.simplicial_embedding is not None:
