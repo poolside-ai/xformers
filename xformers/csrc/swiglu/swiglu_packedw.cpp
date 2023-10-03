@@ -135,6 +135,7 @@ class SwiGLUPackedWeights
     at::Tensor dx1dx2, x4;
     TORCH_INTERNAL_ASSERT(dx5.size(1) == w3.size(0));
     auto dx4 = torch::mm(dx5, w3);
+    TORCH_INTERNAL_ASSERT(dx5.dtype() == dx4.dtype());
     std::tie(dx1dx2, x4) = silu_bw_fused(x1x2, dx4);
     TORCH_INTERNAL_ASSERT_SHAPE(dx1dx2, B, 2, H);
     TORCH_INTERNAL_ASSERT_SHAPE(x4, B, H);

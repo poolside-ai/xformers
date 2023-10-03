@@ -96,7 +96,7 @@ class ReversibleBlock(nn.Module):
         with torch.enable_grad():
             y1.requires_grad = True
             gy1 = self.g(y1, set_rng=True, **g_args)
-            torch.autograd.backward(gy1, dy2)
+        torch.autograd.backward(gy1, dy2)
 
         with torch.no_grad():
             y2.sub_(gy1)
@@ -108,7 +108,7 @@ class ReversibleBlock(nn.Module):
         with torch.enable_grad():
             y2.requires_grad = True
             fy2 = self.f(y2, set_rng=True, **f_args)
-            torch.autograd.backward(fy2, dy1)
+        torch.autograd.backward(fy2, dy1)
 
         with torch.no_grad():
             y1.sub_(fy2)
