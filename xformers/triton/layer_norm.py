@@ -116,8 +116,8 @@ class _LayerNorm(torch.autograd.Function):
         # allocate output
         locks = torch.zeros(2 * GROUP_SIZE_M, dtype=torch.int32, device="cuda")
         t_args = {"dtype": x.dtype, "device": x.device}
-        _dw = torch.empty((GROUP_SIZE_M, x.size(-1)), **t_args)
-        _db = torch.empty_like(_dw)
+        _dw = torch.zeros((GROUP_SIZE_M, x.size(-1)), **t_args)
+        _db = torch.zeros_like(_dw)
         dw = torch.empty((x.size(-1),), **t_args)
         db = torch.empty_like(dw)
         dy = dy.contiguous()
