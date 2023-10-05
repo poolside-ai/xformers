@@ -11,13 +11,12 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <torch/library.h>
-
 #include <45_dual_gemm/device/dual_gemm.h>
 #include <45_dual_gemm/thread/left_silu_and_mul.h>
 
 namespace {
-template <typename scalar_t>
-std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
+template<typename ArchTag_, typename scalar_t>
+std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_t(
     const at::Tensor& x,
     const at::Tensor& w0,
     const c10::optional<at::Tensor>& b0,
@@ -45,9 +44,13 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   constexpr int kStages = 3;
   constexpr bool kSplitKSerial = false;
 
-  using ElementOutput = scalar_t;
-  using ElementAccumulator = float;
-  using ElementCompute = float;
+  // Note: the example code from cutlass uses 16-bit accumulator + output if
+  // scalar_t is a cutlass::half_t (see
+  // https://github.com/NVIDIA/cutlass/blob/61a38f83dcf8ff6e1101d8edcfc53d846587fc97/examples/45_dual_gemm/dual_gemm.cu#L82)  
+  constexpr bool is_half_t = std::is_same_v<scalar_t, cutlass::half_t>;  
+  using ElementOutput = scalar_t;  
+  using ElementAccumulator = std::conditional_t<is_half_t, cutlass::half_t, float>;
+  using ElementCompute = std::conditional_t<is_half_t, cutlass::half_t, float>;
   using EpilogueOutputOp01 = cutlass::epilogue::thread::LinearCombination<
       ElementOutput,
       128 / cutlass::sizeof_bits<ElementOutput>::value,
@@ -66,15 +69,18 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   const ElementCompute alpha1 = ElementCompute(1);
   const ElementCompute beta1 =
       b1.has_value() ? ElementCompute(1) : ElementCompute(0);
-
+  
   using ThreadblockShape = cutlass::gemm::GemmShape<128, 64, 32>;
   using WarpShape = cutlass::gemm::GemmShape<64, 32, 32>;
   using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
 
-  // Optionally, we might not need intermediate GEMM outputs
-  constexpr bool kStoreD0 = false;
-  constexpr bool kStoreD1 = false;
+  // For now, there's no specialisation on tag because cutlass doesn't have it.
+  // See https://github.com/NVIDIA/cutlass/issues/1123
   using ArchTag = cutlass::arch::Sm80;
+  
+  // Optionally, we might not need intermediate GEMM outputs
+  constexpr bool kStoreD0 = true;
+  constexpr bool kStoreD1 = true;
 
   using DualGemm = cutlass::gemm::device::DualGemm<
       scalar_t,
@@ -86,7 +92,7 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
       cutlass::layout::RowMajor,
       ElementAccumulator,
       cutlass::arch::OpClassTensorOp,
-      ArchTag,
+      ArchTag, 
       ThreadblockShape,
       WarpShape,
       InstructionShape,
@@ -98,72 +104,86 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
       kStoreD0,
       kStoreD1,
       kSplitKSerial>;
-  {
-    cudaDeviceProp* p = at::cuda::getDeviceProperties(x.device().index());
-    TORCH_CHECK(
-        p->major * 10 + p->minor >= ArchTag::kMinComputeCapability,
-        "Only A100+ GPUs are supported");
-  }
 
   int split_k_slices = DualGemm::kSplitKSerial ? 2 : 1;
   using RefA = typename cutlass::
-      TensorRef<typename DualGemm::ElementA, typename DualGemm::LayoutA>;
+    TensorRef<typename DualGemm::ElementA, typename DualGemm::LayoutA>;
   using RefB0 = typename cutlass::
-      TensorRef<typename DualGemm::ElementB, typename DualGemm::LayoutB0>;
+    TensorRef<typename DualGemm::ElementB, typename DualGemm::LayoutB0>;
   using RefB1 = typename cutlass::
-      TensorRef<typename DualGemm::ElementB, typename DualGemm::LayoutB1>;
+    TensorRef<typename DualGemm::ElementB, typename DualGemm::LayoutB1>;
   using RefC = typename cutlass::
-      TensorRef<typename DualGemm::ElementC, typename DualGemm::LayoutC>;
+    TensorRef<typename DualGemm::ElementC, typename DualGemm::LayoutC>;
   RefC ref_b0, ref_b1;
   if (b0.has_value()) {
     ref_b0 =
-        RefC{(scalar_t*)b0->data_ptr(), typename DualGemm::LayoutC::Stride(0)};
+      RefC{(scalar_t*)b0->data_ptr(), typename DualGemm::LayoutC::Stride(0)};
   }
   if (b1.has_value()) {
     ref_b1 =
-        RefC{(scalar_t*)b1->data_ptr(), typename DualGemm::LayoutC::Stride(0)};
+      RefC{(scalar_t*)b1->data_ptr(), typename DualGemm::LayoutC::Stride(0)};
   }
   typename DualGemm::Arguments arguments{
-      cutlass::gemm::DualGemmMode::kGemm,
+    cutlass::gemm::DualGemmMode::kGemm,
       problem_size,
       RefA{
-          (scalar_t*)x.data_ptr(),
-          typename DualGemm::LayoutA::Stride(x.stride(0))},
+      (scalar_t*)x.data_ptr(),
+        typename DualGemm::LayoutA::Stride(x.stride(0))},
       RefB0{
-          (scalar_t*)w0.data_ptr(),
-          typename DualGemm::LayoutB0::Stride(w0.stride(0))},
+      (scalar_t*)w0.data_ptr(),
+        typename DualGemm::LayoutB0::Stride(w0.stride(0))},
       ref_b0,
       RefC{
-          (scalar_t*)d0.data_ptr(),
-          typename DualGemm::LayoutC::Stride(d0.stride(0))},
+      (scalar_t*)d0.data_ptr(),
+        typename DualGemm::LayoutC::Stride(d0.stride(0))},
       RefB1{
-          (scalar_t*)w1.data_ptr(),
-          typename DualGemm::LayoutB1::Stride(w1.stride(0))},
+      (scalar_t*)w1.data_ptr(),
+        typename DualGemm::LayoutB1::Stride(w1.stride(0))},
       ref_b1,
       RefC{
-          (scalar_t*)d1.data_ptr(),
-          typename DualGemm::LayoutC::Stride(d1.stride(0))},
+      (scalar_t*)d1.data_ptr(),
+        typename DualGemm::LayoutC::Stride(d1.stride(0))},
       RefC{
-          (scalar_t*)d2.data_ptr(),
-          typename DualGemm::LayoutC::Stride(d2.stride(0))},
+      (scalar_t*)d2.data_ptr(),
+        typename DualGemm::LayoutC::Stride(d2.stride(0))},
       typename DualGemm::EpilogueOutputOp0::Params{alpha0, beta0},
       typename DualGemm::EpilogueOutputOp1::Params{alpha1, beta1},
       typename DualGemm::EpilogueOutputOp2::Params{},
       split_k_slices};
   DualGemm dual_gemm;
   at::Tensor workspace = at::empty(
-      {int64_t(dual_gemm.get_workspace_size(arguments))},
-      x.options().dtype(at::ScalarType::Byte));
+                                   {int64_t(dual_gemm.get_workspace_size(arguments))},
+                                   x.options().dtype(at::ScalarType::Byte));
   cutlass::Status status = dual_gemm.can_implement(arguments);
   TORCH_CHECK(
-      status == cutlass::Status::kSuccess,
-      "`dual_gemm_silu_identity_mul` does not support this input: ",
-      cutlass::cutlassGetStatusString(status));
+              status == cutlass::Status::kSuccess,
+              "`dual_gemm_silu_identity_mul` does not support this input: ",
+              cutlass::cutlassGetStatusString(status));
   status = dual_gemm.initialize(arguments, (uint8_t*)workspace.data_ptr());
   TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel initialize failed");
   status = dual_gemm(stream);
   TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel run failed: ", cutlass::cutlassGetStatusString(status));
-  return std::make_tuple(d0d1, d2);
+  return std::make_tuple(d0d1, d2);  
+}
+                                                                
+  
+template <typename scalar_t>
+std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
+    const at::Tensor& x,
+    const at::Tensor& w0,
+    const c10::optional<at::Tensor>& b0,
+    const at::Tensor& w1,
+    const c10::optional<at::Tensor>& b1) {
+  cudaDeviceProp* p = at::cuda::getDeviceProperties(x.device().index());
+  const int tag = p->major * 10 + p->minor;
+  TORCH_CHECK(tag >= cutlass::arch::Sm80::kMinComputeCapability, 
+        "Only A100+ GPUs are supported");
+
+  if(tag >= cutlass::arch::Sm90::kMinComputeCapability) {
+    return dual_gemm_silu_identity_mul_t<cutlass::arch::Sm90, scalar_t>(x, w0, b0, w1, b1);
+  } else {
+    return dual_gemm_silu_identity_mul_t<cutlass::arch::Sm80, scalar_t>(x, w0, b0, w1, b1);
+  }  
 }
 
 std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
