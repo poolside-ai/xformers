@@ -72,8 +72,8 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
 
   // Optionally, we might not need intermediate GEMM outputs
-  constexpr bool kStoreD0 = true;
-  constexpr bool kStoreD1 = true;
+  constexpr bool kStoreD0 = false;
+  constexpr bool kStoreD1 = false;
   using ArchTag = cutlass::arch::Sm80;
 
   using DualGemm = cutlass::gemm::device::DualGemm<
