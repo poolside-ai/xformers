@@ -16,7 +16,7 @@ from .unbind import stack_or_none, unbind
 
 @register_operator
 class DualGemmSiluOp(BaseOperator):
-    OPERATOR = get_xformers_operator("dual_gemm_silu_identity_mul")
+    OPERATOR = get_xformers_operator("custom_dual_gemm_silu_identity_mul")
     OPERATOR_CATEGORY = "swiglu"
     NAME = "dual_gemm_silu"
 
@@ -106,7 +106,12 @@ class _SwiGLUFusedFunc(torch.autograd.Function):
     @torch.cuda.amp.custom_fwd
     def forward(cls, ctx, x, w1, b1, w2, b2, w3, b3):
         x1x2, x4 = DualGemmSiluOp.OPERATOR(x, w1, b1, w2, b2)
+        x1x2 = x1x2.type(torch.float32)
+        x4 = x4.type(torch.float32)
 
+        print(f'x1x2 = {x1x2.dtype}')
+        print(f'x4 = {x4.dtype}')
+        print(f'w3 = {w3.dtype}')
         x5 = F.linear(x4, w3, b3)
         ctx.save_for_backward(x, w1, w2, w3, x1x2)
         ctx.bias = [b1 is not None, b2 is not None, b3 is not None]
@@ -215,6 +220,20 @@ def _eager_functional_swiglu(
     w3: torch.Tensor,
     b3: torch.Tensor,
 ) -> torch.Tensor:
+    #x = x.type(torch.bfloat16)
+    #w1 = w1.type(torch.bfloat16)
+    #w2 = w2.type(torch.bfloat16)
+    #w3 = w3.type(torch.bfloat16)
+    #if b1:
+    #    b1 = b1.type(torch.bfloat16)
+    #if b2:
+    #    b2 = b2.type(torch.bfloat16)
+    #if b3:
+    #    b3 = b3.type(torch.bfloat16)
+    print(f"x = {x.dtype}")
+    print(f"w1 = {w1.dtype}")
+    print(f"w2 = {w2.dtype}")
+    print(f"w3 = {w3.dtype}")
     x1 = F.linear(x, w1, b1)
     x2 = F.linear(x, w2, b2)
     hidden = F.silu(x1) * x2
@@ -240,14 +259,17 @@ class SwiGLUOpDispatch:
         Returns:
             SwiGLUOp: The best operator for the configuration
         """
-        priorities: Sequence[SwiGLUOp] = [
-            SwiGLUPackedFusedOp,
-            SwiGLUFusedOp,
-        ]
-        for op in priorities:
-            if op.supports(self):
-                return op
-        return SwiGLUEagerOp
+        #priorities: Sequence[SwiGLUOp] = [
+        #    SwiGLUPackedFusedOp,
+        #    SwiGLUFusedOp,
+        #]
+        #for op in priorities:
+        #    if op.supports(self):
+        #        return op
+        #return SwiGLUEagerOp
+        return SwiGLUFusedOp
+        #print("packed fused op")
+        #return SwiGLUPackedFusedOp
 
     @staticmethod
     def from_arguments(
@@ -290,7 +312,7 @@ _SwiGLUDecomposedOp = _ForwardToPythonAutogradFunc(
     _SwiGLUDecomposedFunc, False, "decomposed", constraints=[_bias_enabled]
 )
 SwiGLUFusedOp = _ForwardToPythonAutogradFunc(
-    _SwiGLUFusedFunc, False, "fused", constraints=[_only_sm80, _only_half_or_autocast]
+    _SwiGLUFusedFunc, False, "fused", constraints=[]#_only_sm80, _only_half_or_autocast]
 )
 SwiGLUPackedFusedOp = _ForwardToFunc(
     get_xformers_operator("swiglu_packedw"),

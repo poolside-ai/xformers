@@ -166,6 +166,155 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   return std::make_tuple(d0d1, d2);
 }
 
+std::tuple<at::Tensor, at::Tensor> custom_dual_gemm_silu_identity_mul_(
+    const at::Tensor& x,
+    const at::Tensor& w0,
+    const c10::optional<at::Tensor>& b0,
+    const at::Tensor& w1,
+    const c10::optional<at::Tensor>& b1) {
+  TORCH_CHECK(x.stride(-1) == 1);
+  TORCH_CHECK(w0.stride(-1) == 1);
+  TORCH_CHECK(w1.stride(-1) == 1);
+
+  at::cuda::CUDAGuard device_guard(x.device());
+  cudaStream_t stream = at::cuda::getCurrentCUDAStream();
+
+  int64_t B = x.size(0);
+  int64_t I = x.size(1);
+  int64_t H = w0.size(0);
+
+  at::Tensor d0d1 = at::empty({B, 2, H}, x.options());
+  at::Tensor d0 = d0d1.select(1, 0);
+  at::Tensor d1 = d0d1.select(1, 1);
+  at::Tensor d2 = at::empty({B, H}, x.options());
+
+  // templati-ze the cutlass kernel
+  cutlass::gemm::GemmCoord problem_size(B, H, I);
+
+  constexpr int kStages = 3;
+  constexpr bool kSplitKSerial = false;
+
+  using ElementOutput = cutlass::bfloat16_t;
+  using ElementAccumulator = float;
+  using ElementCompute = float;
+  using EpilogueOutputOp01 = cutlass::epilogue::thread::LinearCombination<
+      ElementOutput,
+      128 / cutlass::sizeof_bits<ElementOutput>::value,
+      ElementAccumulator,
+      ElementCompute,
+      cutlass::epilogue::thread::ScaleType::NoBetaScaling>;
+  using EpilogueOutputOp2 = cutlass::epilogue::thread::LeftSiLUAndMul<
+      ElementOutput,
+      128 / cutlass::sizeof_bits<ElementOutput>::value,
+      ElementOutput,
+      ElementCompute>;
+
+  const ElementCompute alpha0 = ElementCompute(1);
+  const ElementCompute beta0 =
+      b0.has_value() ? ElementCompute(1) : ElementCompute(0);
+  const ElementCompute alpha1 = ElementCompute(1);
+  const ElementCompute beta1 =
+      b1.has_value() ? ElementCompute(1) : ElementCompute(0);
+
+  using ThreadblockShape = cutlass::gemm::GemmShape<128, 64, 32>;
+  using WarpShape = cutlass::gemm::GemmShape<64, 32, 32>;
+  using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
+
+  // Optionally, we might not need intermediate GEMM outputs
+  constexpr bool kStoreD0 = true;
+  constexpr bool kStoreD1 = true;
+  using ArchTag = cutlass::arch::Sm80;
+
+  using DualGemm = cutlass::gemm::device::DualGemm<
+      cutlass::bfloat16_t,
+      cutlass::layout::RowMajor,
+      cutlass::bfloat16_t,
+      cutlass::layout::ColumnMajor,
+      cutlass::layout::ColumnMajor,
+      ElementOutput,
+      cutlass::layout::RowMajor,
+      ElementAccumulator,
+      cutlass::arch::OpClassTensorOp,
+      ArchTag,
+      ThreadblockShape,
+      WarpShape,
+      InstructionShape,
+      EpilogueOutputOp01,
+      EpilogueOutputOp01,
+      EpilogueOutputOp2,
+      cutlass::gemm::threadblock::GemmIdentityThreadblockSwizzle<2>,
+      kStages,
+      kStoreD0,
+      kStoreD1,
+      kSplitKSerial>;
+  {
+    cudaDeviceProp* p = at::cuda::getDeviceProperties(x.device().index());
+    TORCH_CHECK(
+        p->major * 10 + p->minor >= ArchTag::kMinComputeCapability,
+        "Only A100+ GPUs are supported");
+  }
+
+  int split_k_slices = DualGemm::kSplitKSerial ? 2 : 1;
+  using RefA = typename cutlass::
+      TensorRef<typename DualGemm::ElementA, typename DualGemm::LayoutA>;
+  using RefB0 = typename cutlass::
+      TensorRef<typename DualGemm::ElementB, typename DualGemm::LayoutB0>;
+  using RefB1 = typename cutlass::
+      TensorRef<typename DualGemm::ElementB, typename DualGemm::LayoutB1>;
+  using RefC = typename cutlass::
+      TensorRef<typename DualGemm::ElementC, typename DualGemm::LayoutC>;
+  RefC ref_b0, ref_b1;
+  if (b0.has_value()) {
+    ref_b0 =
+        RefC{(cutlass::bfloat16_t*)b0->data_ptr(), typename DualGemm::LayoutC::Stride(0)};
+  }
+  if (b1.has_value()) {
+    ref_b1 =
+        RefC{(cutlass::bfloat16_t*)b1->data_ptr(), typename DualGemm::LayoutC::Stride(0)};
+  }
+  typename DualGemm::Arguments arguments{
+      cutlass::gemm::DualGemmMode::kGemm,
+      problem_size,
+      RefA{
+          (cutlass::bfloat16_t*)x.data_ptr(),
+          typename DualGemm::LayoutA::Stride(x.stride(0))},
+      RefB0{
+          (cutlass::bfloat16_t*)w0.data_ptr(),
+          typename DualGemm::LayoutB0::Stride(w0.stride(0))},
+      ref_b0,
+      RefC{
+          (cutlass::bfloat16_t*)d0.data_ptr(),
+          typename DualGemm::LayoutC::Stride(d0.stride(0))},
+      RefB1{
+          (cutlass::bfloat16_t*)w1.data_ptr(),
+          typename DualGemm::LayoutB1::Stride(w1.stride(0))},
+      ref_b1,
+      RefC{
+          (cutlass::bfloat16_t*)d1.data_ptr(),
+          typename DualGemm::LayoutC::Stride(d1.stride(0))},
+      RefC{
+          (cutlass::bfloat16_t*)d2.data_ptr(),
+          typename DualGemm::LayoutC::Stride(d2.stride(0))},
+      typename DualGemm::EpilogueOutputOp0::Params{alpha0, beta0},
+      typename DualGemm::EpilogueOutputOp1::Params{alpha1, beta1},
+      typename DualGemm::EpilogueOutputOp2::Params{},
+      split_k_slices};
+  DualGemm dual_gemm;
+  at::Tensor workspace = at::empty(
+      {int64_t(dual_gemm.get_workspace_size(arguments))},
+      x.options().dtype(at::ScalarType::Byte));
+  cutlass::Status status = dual_gemm.can_implement(arguments);
+  TORCH_CHECK(
+      status == cutlass::Status::kSuccess,
+      "`dual_gemm_silu_identity_mul` does not support this input: ",
+      cutlass::cutlassGetStatusString(status));
+  status = dual_gemm.initialize(arguments, (uint8_t*)workspace.data_ptr());
+  TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel initialize failed");
+  status = dual_gemm(stream);
+  TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel run failed: ", cutlass::cutlassGetStatusString(status));
+  return std::make_tuple(d0d1, d2);
+}
+
 std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
     const at::Tensor& x,
     const at::Tensor& w0,
@@ -188,6 +337,26 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
   }
 }
 
+std::tuple<at::Tensor, at::Tensor> custom_dual_gemm_silu_identity_mul(
+    const at::Tensor& x,
+    const at::Tensor& w0,
+    const c10::optional<at::Tensor>& b0,
+    const at::Tensor& w1,
+    const c10::optional<at::Tensor>& b1) {
+  // TODO: Check all params. This would take a lot of lines of code...
+  TORCH_CHECK(x.dim() == 2);
+  TORCH_CHECK(w0.dim() == 2);
+  TORCH_CHECK(w1.dim() == 2);
+
+  TORCH_CHECK(
+      x.scalar_type() == at::ScalarType::Float, "Only supports x as float");
+  TORCH_CHECK(
+      w0.scalar_type() == at::ScalarType::Float, "Only supports w0 as float");
+  TORCH_CHECK(
+      w1.scalar_type() == at::ScalarType::Float, "Only supports w1 as float");
+  return dual_gemm_silu_identity_mul_<cutlass::bfloat16_t>(x.toType(at::ScalarType::BFloat16), w0.toType(at::ScalarType::BFloat16), b0, w1.toType(at::ScalarType::BFloat16), b1);
+}
+
 std::tuple<at::Tensor, at::Tensor>
 dual_gemm_silu_identity_mul_autocast(
     const at::Tensor& x,
@@ -206,6 +375,12 @@ dual_gemm_silu_identity_mul_autocast(
 }
 
 } // namespace
+
+TORCH_LIBRARY_IMPL(xformers, CUDA, m) {
+  m.impl(
+      TORCH_SELECTIVE_NAME("xformers::custom_dual_gemm_silu_identity_mul"),
+      TORCH_FN(custom_dual_gemm_silu_identity_mul));
+}
 
 TORCH_LIBRARY_IMPL(xformers, CUDA, m) {
   m.impl(

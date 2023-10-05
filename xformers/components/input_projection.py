@@ -90,6 +90,10 @@ class InputProjection(nn.Module):
 
         # NOTE: Would it make sense to catch self attention + shared weights, to skip a projection step ?
 
+        #query = query.type(torch.bfloat16)
+        #key = key.type(torch.bfloat16)
+        #value = value.type(torch.bfloat16)
+
         q, k, v = map(
             lambda fn, x: fn(x),
             [self.q_proj, self.k_proj, self.v_proj],
