@@ -225,6 +225,7 @@ std::tuple<at::Tensor, at::Tensor> custom_dual_gemm_silu_identity_mul_(
   constexpr bool kStoreD1 = true;
   using ArchTag = cutlass::arch::Sm80;
 
+  // I tried to mix types here but I couldn't get it to compile. I am still unsure if it even supports mixed precision multiplicaiton (chris)
   using DualGemm = cutlass::gemm::device::DualGemm<
       cutlass::bfloat16_t,
       cutlass::layout::RowMajor,
@@ -354,7 +355,7 @@ std::tuple<at::Tensor, at::Tensor> custom_dual_gemm_silu_identity_mul(
       w0.scalar_type() == at::ScalarType::Float, "Only supports w0 as float");
   TORCH_CHECK(
       w1.scalar_type() == at::ScalarType::Float, "Only supports w1 as float");
-  return dual_gemm_silu_identity_mul_<cutlass::bfloat16_t>(x.toType(at::ScalarType::BFloat16), w0.toType(at::ScalarType::BFloat16), b0, w1.toType(at::ScalarType::BFloat16), b1);
+  return custom_dual_gemm_silu_identity_mul_(x.toType(at::ScalarType::BFloat16), w0.toType(at::ScalarType::BFloat16), b0, w1.toType(at::ScalarType::BFloat16), b1);
 }
 
 std::tuple<at::Tensor, at::Tensor>
