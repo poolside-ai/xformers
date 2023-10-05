@@ -45,9 +45,11 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   constexpr int kStages = 3;
   constexpr bool kSplitKSerial = false;
 
+  // N.B The example code from cutlass uses 16-bit accumulators and output if scalar_t is cutlass::half_t.
+  constexpr bool is_half_t = std::is_same_v<scalar_t, cutlass::half_t>;
   using ElementOutput = scalar_t;
-  using ElementAccumulator = float;
-  using ElementCompute = float;
+  using ElementAccumulator = std::conditional_t<is_half_t, cutlass::half_t, float>;
+  using ElementCompute = std::conditional_t<is_half_t, cutlass::half_t, float>;
   using EpilogueOutputOp01 = cutlass::epilogue::thread::LinearCombination<
       ElementOutput,
       128 / cutlass::sizeof_bits<ElementOutput>::value,
