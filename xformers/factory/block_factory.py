@@ -92,16 +92,11 @@ def _get_ln_factory(
     return ln_factory
 
 
-class xFormerEncoderBlock(torch.nn.Module):
-    r"""A vanilla Transformer Encoder block"""
+class xFormerEmbeddingBlock(torch.nn.Module):
+    r"""An Embedding block"""
 
-    def __init__(self, config: xFormerEncoderConfig, **kwargs):
+    def __init__(self, config: xFormerEncoderConfig):
         super().__init__()
-
-        self.reversible_f = None
-        self.reversible_g = None
-        self.residual_norm_style = config.residual_norm_style
-        self.dim_model = config.dim_model
 
         # If this layer is the first one, and a pose encoding has been requested
         if (
@@ -122,6 +117,40 @@ class xFormerEncoderBlock(torch.nn.Module):
                 self.embedding_projector = nn.Linear(pos_encoding_dim, mha_dim)
         else:
             self.pose_encoding = None
+
+    @classmethod
+    def from_config(cls, config: xFormerEncoderConfig, **kwargs):
+        return cls(config, **kwargs)
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        att_mask: Optional[Union[torch.Tensor, AttentionMask]] = None,
+        input_mask: Optional[torch.Tensor] = None,
+    ):
+        if self.patch_emb is not None:
+            x = self.patch_emb(x)
+
+        if self.pose_encoding is not None:
+            x = self.pose_encoding(x)
+
+            if hasattr(self, "embedding_projector"):
+                x = self.embedding_projector(x)
+
+        return x
+
+
+class xFormerEncoderBlock(torch.nn.Module):
+    r"""A vanilla Transformer Encoder block"""
+
+    def __init__(self, config: xFormerEncoderConfig, **kwargs):
+        super().__init__()
+
+        self.embedding_block = xFormerEmbeddingBlock(config)
+        self.reversible_f = None
+        self.reversible_g = None
+        self.residual_norm_style = config.residual_norm_style
+        self.dim_model = config.dim_model
 
         if config.residual_norm_style == ResidualNormStyle.DeepNorm:
             # Just use the layer norm coefficient here,
@@ -185,8 +214,8 @@ class xFormerEncoderBlock(torch.nn.Module):
             )
 
     @classmethod
-    def from_config(cls, config: xFormerEncoderConfig):
-        return cls(config)
+    def from_config(cls, config: xFormerEncoderConfig, **kwargs):
+        return cls(config, **kwargs)
 
     @staticmethod
     def get_reversible_layer(config) -> Tuple[nn.Module, nn.Module]:
@@ -211,14 +240,7 @@ class xFormerEncoderBlock(torch.nn.Module):
         att_mask: Optional[Union[torch.Tensor, AttentionMask]] = None,
         input_mask: Optional[torch.Tensor] = None,
     ):
-        if self.patch_emb is not None:
-            x = self.patch_emb(x)
-
-        if self.pose_encoding is not None:
-            x = self.pose_encoding(x)
-
-            if hasattr(self, "embedding_projector"):
-                x = self.embedding_projector(x)
+        x = self.embedding_block(x)
 
         # Handle the optional input masking, differs on Q, K, V
         if input_mask is not None:
