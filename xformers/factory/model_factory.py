@@ -155,14 +155,13 @@ class xFormer(torch.nn.Module):
                     self.reversible_encoder = config.reversible
 
             # Build up the stack
-            num_layers = config.num_layers + 1
-            for i in range(num_layers):
+            for i in range(config.num_layers):
                 # Label where this layer is in the stack
                 # (for instance useful for the positional encoding, or late layer norm)
                 if len(recipient) > 0:
                     config.layer_position.mark_not_first()
 
-                if config != stack_configs[-1] or i < num_layers - 1:
+                if config != stack_configs[-1] or i < config.num_layers - 1:
                     config.layer_position.mark_not_last()
 
                 # If reversible: extract the reversible sub-parts, else append the block as-is
@@ -195,7 +194,7 @@ class xFormer(torch.nn.Module):
 
         self.encoders: torch.nn.Module
         if self.reversible_encoder:
-            grouped_encoders = [encoders[0]]
+            grouped_encoders = [encoders[0]]  # [{xFormerEmbeddingBlock + InputAdapter}]
             for i in range(1, len(encoders), self.reversible_encoder):
                 grouped_encoders.append(
                     rv.ReversibleSequence(

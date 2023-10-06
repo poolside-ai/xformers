@@ -282,6 +282,7 @@ class xFormerDecoderBlock(torch.nn.Module):
             mha_dim = config.multi_head_config_masked["dim_model"]
 
             if pos_encoding_dim != mha_dim:
+
                 logger.warning(
                     f"The embedding dim and model dim do not match ({pos_encoding_dim} vs {mha_dim}), adding a projector layer."  # noqa
                 )
