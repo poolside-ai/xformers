@@ -7,6 +7,10 @@
 # CREDITS: This comes almost as-is from the Triton layer norm tutorial
 # https://github.com/openai/triton/blob/master/python/tutorials/05-layer-norm.py
 
+# See the following for a modification for use with weight decay that is implemented here.
+# https://medium.com/@ohadrubin/exploring-weight-decay-in-layer-normalization-challenges-and-a-reparameterization-solution-ad4d12c24950
+
+
 
 import triton
 import triton.language as tl
@@ -21,7 +25,7 @@ def layer_norm_fw(X, Y, W, B, M, V, stride, N, eps, affine: tl.constexpr, BLOCK_
     The layer norm is applied over the last dimension.
 
     Compute
-        y = (x - E(x))/(sqrt(var(x) + epsilon)) * gamma + beta
+        y = (x - E(x))/(sqrt(var(x) + epsilon)) * (1 + gamma) + beta
     """
 
     row = tl.program_id(0)
