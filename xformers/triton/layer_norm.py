@@ -183,7 +183,7 @@ class FusedLayerNorm(nn.Module):
     def __init__(self, normalized_shape, affine=True, eps=1e-06):
         super().__init__()
         if affine:
-            self.weight = nn.Parameter(torch.ones(normalized_shape))
+            self.weight = nn.Parameter(torch.zeros(normalized_shape))
             self.bias = nn.Parameter(torch.zeros(normalized_shape))
         else:
             self.weight = self.bias = None
@@ -240,9 +240,10 @@ def layer_norm(
             logger.warning(e)
 
     if y is None:
-        y = torch.nn.functional.layer_norm(
-            x, [x.shape[-1]], weight=weight, bias=bias, eps=eps
-        ).to(torch.get_autocast_gpu_dtype())
+        #y = torch.nn.functional.layer_norm(
+        #    x, [x.shape[-1]], weight=weight, bias=bias, eps=eps
+        #)
+        raise RuntimeError("Fallback to pytorch layer norm no longer supported")
 
     assert y.dtype == input_dtype
     return y
