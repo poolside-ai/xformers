@@ -45,11 +45,9 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   constexpr int kStages = 3;
   constexpr bool kSplitKSerial = false;
 
-  // N.B The example code from cutlass uses 16-bit accumulators and output if scalar_t is cutlass::half_t.
-  constexpr bool is_half_t = std::is_same_v<scalar_t, cutlass::half_t>;
   using ElementOutput = scalar_t;
-  using ElementAccumulator = std::conditional_t<is_half_t, cutlass::half_t, float>;
-  using ElementCompute = std::conditional_t<is_half_t, cutlass::half_t, float>;
+  using ElementAccumulator = float;
+  using ElementCompute = float;
   using EpilogueOutputOp01 = cutlass::epilogue::thread::LinearCombination<
       ElementOutput,
       128 / cutlass::sizeof_bits<ElementOutput>::value,
@@ -69,11 +67,11 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   const ElementCompute beta1 =
       b1.has_value() ? ElementCompute(1) : ElementCompute(0);
 
-  using ThreadblockShape = cutlass::gemm::GemmShape<128, 128, 64>;
-  using WarpShape = cutlass::gemm::GemmShape<32, 32, 32>;
+  using ThreadblockShape = cutlass::gemm::GemmShape<256, 64, 32>;
+  using WarpShape = cutlass::gemm::GemmShape<64, 32, 32>;
   using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
 
-  // Optionally, we might not need intermediate GEMM outputs
+  // For a fused kernel we don't need the intermediate outputs. 
   constexpr bool kStoreD0 = false;
   constexpr bool kStoreD1 = false;
   using ArchTag = cutlass::arch::Sm80;
@@ -136,14 +134,14 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
           typename DualGemm::LayoutB0::Stride(w0.stride(0))},
       ref_b0,
       RefC{
-        ((kStoreD0) ? (scalar_t*)d0.data_ptr() : nullptr),
+          (kStoreD0 ? (scalar_t*)d0.data_ptr() : nullptr),
           typename DualGemm::LayoutC::Stride(d0.stride(0))},
       RefB1{
           (scalar_t*)w1.data_ptr(),
           typename DualGemm::LayoutB1::Stride(w1.stride(0))},
       ref_b1,
       RefC{
-        ((kStoreD1) ? (scalar_t*)d1.data_ptr() : nullptr),
+          (kStoreD1 ? (scalar_t*)d1.data_ptr() : nullptr),
           typename DualGemm::LayoutC::Stride(d1.stride(0))},
       RefC{
           (scalar_t*)d2.data_ptr(),
@@ -164,7 +162,10 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   status = dual_gemm.initialize(arguments, (uint8_t*)workspace.data_ptr());
   TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel initialize failed");
   status = dual_gemm(stream);
-  TORCH_CHECK(status == cutlass::Status::kSuccess, "kernel run failed: ", cutlass::cutlassGetStatusString(status));
+  TORCH_CHECK(
+      status == cutlass::Status::kSuccess,
+      "kernel run failed: ",
+      cutlass::cutlassGetStatusString(status));
   return std::make_tuple(d0d1, d2);
 }
 
@@ -190,8 +191,7 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul(
   }
 }
 
-std::tuple<at::Tensor, at::Tensor>
-dual_gemm_silu_identity_mul_autocast(
+std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_autocast(
     const at::Tensor& x,
     const at::Tensor& w0,
     const c10::optional<at::Tensor>& b0,
