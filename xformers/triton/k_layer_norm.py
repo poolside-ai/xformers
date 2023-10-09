@@ -48,7 +48,7 @@ def layer_norm_fw(X, Y, W, B, M, V, stride, N, eps, affine: tl.constexpr, BLOCK_
     if affine:
         w = tl.load(W + cols, mask=mask, other=1.0)
         b = tl.load(B + cols, mask=mask, other=0.0)
-        y = y * w + b
+        y = y * (1 + w) + b
 
     y_ptrs = Y + row * stride + cols
     tl.store(y_ptrs, y, mask=mask)
@@ -88,7 +88,7 @@ def layer_norm_bwd_dx_fused(
 
     if affine:
         w = tl.load(W + cols, mask=mask, other=0)
-        wdy = w * dy
+        wdy = (1 + w) * dy
     else:
         wdy = dy
 
