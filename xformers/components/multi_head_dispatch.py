@@ -13,9 +13,10 @@ import torch.nn as nn
 from torch.nn.init import constant_
 
 from xformers.components.attention import Attention
-from xformers.triton import FusedDropoutBias
-from xformers.components.input_projection import InputProjection, InputProjectionConfig
+from xformers.components.input_projection import (InputProjection,
+                                                  InputProjectionConfig)
 from xformers.components.positional_embedding import RotaryEmbedding
+from xformers.triton import FusedDropoutBias
 
 logger = logging.getLogger("xformers")
 
