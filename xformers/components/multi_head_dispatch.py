@@ -13,6 +13,7 @@ import torch.nn as nn
 from torch.nn.init import constant_
 
 from xformers.components.attention import Attention
+from xformers.triton import FusedDropoutBias
 from xformers.components.input_projection import InputProjection, InputProjectionConfig
 from xformers.components.positional_embedding import RotaryEmbedding
 
@@ -141,7 +142,7 @@ class MultiHeadDispatch(nn.Module):
         )
 
         # Regularization
-        self.resid_drop = nn.Dropout(residual_dropout, inplace=True)
+        self.resid_drop = FusedDropoutBias(p=residual_dropout, bias_shape=None, inplace_fwd=True)
 
         # Output projection
         self.proj = (
