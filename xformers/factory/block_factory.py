@@ -93,10 +93,18 @@ def _get_ln_factory(
 
 
 class xFormerEmbeddingBlock(torch.nn.Module):
-    r"""An Embedding block"""
+    """An Embedding block"""
 
     def __init__(self, config: xFormerEncoderConfig):
         super().__init__()
+
+        # Optional patch embedding
+        self.patch_emb: Optional[nn.Module] = None
+
+        if config.patch_embedding_config is not None:
+            self.patch_emb = build_patch_embedding(
+                PatchEmbeddingConfig(**config.patch_embedding_config)
+            )
 
         # If this layer is the first one, and a pose encoding has been requested
         if (
@@ -122,12 +130,7 @@ class xFormerEmbeddingBlock(torch.nn.Module):
     def from_config(cls, config: xFormerEncoderConfig, **kwargs):
         return cls(config, **kwargs)
 
-    def forward(
-        self,
-        x: torch.Tensor,
-        att_mask: Optional[Union[torch.Tensor, AttentionMask]] = None,
-        input_mask: Optional[torch.Tensor] = None,
-    ):
+    def forward(self, x: torch.Tensor):
         if self.patch_emb is not None:
             x = self.patch_emb(x)
 
@@ -141,7 +144,7 @@ class xFormerEmbeddingBlock(torch.nn.Module):
 
 
 class xFormerEncoderBlock(torch.nn.Module):
-    r"""A vanilla Transformer Encoder block"""
+    """A vanilla Transformer Encoder block"""
 
     def __init__(self, config: xFormerEncoderConfig, **kwargs):
         super().__init__()
@@ -205,14 +208,6 @@ class xFormerEncoderBlock(torch.nn.Module):
                 **config.simplicial_embeddings
             )
 
-        # Optional patch embedding
-        self.patch_emb: Optional[nn.Module] = None
-
-        if config.patch_embedding_config is not None:
-            self.patch_emb = build_patch_embedding(
-                PatchEmbeddingConfig(**config.patch_embedding_config)
-            )
-
     @classmethod
     def from_config(cls, config: xFormerEncoderConfig, **kwargs):
         return cls(config, **kwargs)
@@ -262,7 +257,7 @@ class xFormerEncoderBlock(torch.nn.Module):
 
 
 class xFormerDecoderBlock(torch.nn.Module):
-    r"""A vanilla Transformer Decoder block
+    """A vanilla Transformer Decoder block
 
     ... note: this implementation is not (yet ?) reversible"""
 

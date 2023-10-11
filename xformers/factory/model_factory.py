@@ -167,7 +167,7 @@ class xFormer(torch.nn.Module):
                 # If reversible: extract the reversible sub-parts, else append the block as-is
                 if self.reversible_encoder:
                     if i == 0:
-                        recipient.append(torch.nn.Sequential(
+                        recipient.extend((
                             xFormerEmbeddingBlock.from_config(config),
                             rv.InputAdapter(),
                         ))
@@ -194,8 +194,8 @@ class xFormer(torch.nn.Module):
 
         self.encoders: torch.nn.Module
         if self.reversible_encoder:
-            grouped_encoders = [encoders[0]]  # [{xFormerEmbeddingBlock + InputAdapter}]
-            for i in range(1, len(encoders), self.reversible_encoder):
+            grouped_encoders = [*encoders[:2]]  # [{xFormerEmbeddingBlock + InputAdapter}]
+            for i in range(2, len(encoders), self.reversible_encoder):
                 grouped_encoders.append(
                     rv.ReversibleSequence(
                         torch.nn.ModuleList(encoders[i: i + self.reversible_encoder]),
