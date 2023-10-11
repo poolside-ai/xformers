@@ -167,10 +167,10 @@ class xFormer(torch.nn.Module):
                 # If reversible: extract the reversible sub-parts, else append the block as-is
                 if self.reversible_encoder:
                     if i == 0:
-                        recipient.append(torch.nn.Sequential([
+                        recipient.append(torch.nn.Sequential(
                             xFormerEmbeddingBlock.from_config(config),
                             rv.InputAdapter(),
-                        ]))
+                        ))
                     f, g = xFormerEncoderBlock.get_reversible_layer(config)
                     recipient.append(torch.nn.ModuleList([f, g]))
                 else:
