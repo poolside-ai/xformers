@@ -85,7 +85,7 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
       ElementOutput,
       cutlass::layout::RowMajor,
       ElementAccumulator,
-      cutlass::arch::OpClassTensorOp,
+      cutlass::arch::OpClassWmmaTensorOp,
       ArchTag,
       ThreadblockShape,
       WarpShape,
