@@ -21,7 +21,7 @@ Log-softmax is also available. The actual Triton kernel is very similar to `this
 
 .. code-block:: python
 
-    from xformers.triton import softmax, log_softmax
+    from xformers.triton.softmax import softmax, log_softmax
     y = softmax(x)   # Torch AMP, autograd aware
 
 The expected throughput, when compared to PyTorch and on a nVidia V100, is along these lines
@@ -50,7 +50,7 @@ This is a drop-in replacement to two PyTorch operands: a `torch.nn.Linear`, and 
 
 .. code-block:: python
 
-    from xformers.triton import FusedLinearLayer
+    from xformers.triton.fused_linear_layer import FusedLinearLayer
 
     my_linear_layer = FusedLinearLayer(in_features, out_features, bias=True/False, activation="squared_relu")
 

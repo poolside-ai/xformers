@@ -17,7 +17,7 @@ if _triton_available:
     try:
         import triton  # noqa: F401
 
-        from xformers.triton import FusedLinear
+        from xformers.triton.fused_linear_layer import FusedLinear
         from xformers.triton.k_activations import get_triton_activation_index
         from xformers.triton.k_fused_matmul_fw import fused_matmul
         from xformers.triton.utils import gpu_capabilities_older_than_70

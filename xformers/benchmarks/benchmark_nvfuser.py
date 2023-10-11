@@ -23,7 +23,7 @@ from xformers.components.nvfuser.bias_dropout_res_layernorm import (
     _fn as bias_dropout_res_layernorm,
 )
 from xformers.components.nvfuser.utils import build_nvfused
-from xformers.triton import FusedDropoutBias
+from xformers.triton.dropout import FusedDropoutBias
 
 SHAPES = [
     (8, 256, 512),

@@ -22,7 +22,7 @@ logger = logging.getLogger("xformers")
 
 if torch.cuda.is_available():
     try:
-        from xformers.triton import FusedDropoutBias
+        from xformers.triton.dropout import FusedDropoutBias
 
         @dataclass
         class FusedMlpConfig(FeedforwardConfig):

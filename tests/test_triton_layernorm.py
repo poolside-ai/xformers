@@ -13,7 +13,7 @@ from torch.cuda.amp.autocast_mode import autocast
 import xformers
 
 try:
-    from xformers.triton import FusedLayerNorm
+    from xformers.triton.layer_norm import FusedLayerNorm
     from xformers.triton.utils import gpu_capabilities_older_than_70
 
     _triton_available = xformers._is_triton_available()

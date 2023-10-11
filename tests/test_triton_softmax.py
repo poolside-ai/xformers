@@ -12,8 +12,8 @@ from torch.cuda.amp.autocast_mode import autocast
 import xformers
 
 try:
-    from xformers.triton import log_softmax as triton_log_softmax
-    from xformers.triton import softmax as triton_softmax
+    from xformers.triton.softmax import log_softmax as triton_log_softmax
+    from xformers.triton.softmax import softmax as triton_softmax
 
     _triton_available = xformers._is_triton_available()
 except ImportError as e:

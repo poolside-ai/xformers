@@ -11,7 +11,7 @@ import triton
 
 from xformers.benchmarks.utils import TestCase, pretty_plot, pretty_print
 from xformers.components import Activation, build_activation
-from xformers.triton import FusedDropoutBias
+from xformers.triton.dropout import FusedDropoutBias
 
 SHAPES = [
     (8, 256, 512),

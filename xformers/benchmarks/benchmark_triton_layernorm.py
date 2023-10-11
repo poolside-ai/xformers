@@ -10,7 +10,7 @@ import torch
 import triton
 
 from xformers.benchmarks.utils import TestCase, pretty_plot, pretty_print
-from xformers.triton import FusedLayerNorm
+from xformers.triton.layer_norm import FusedLayerNorm
 
 SHAPES = [
     (8, 256, 512),
