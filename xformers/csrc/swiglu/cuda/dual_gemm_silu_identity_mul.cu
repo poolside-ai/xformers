@@ -67,7 +67,7 @@ std::tuple<at::Tensor, at::Tensor> dual_gemm_silu_identity_mul_(
   const ElementCompute beta1 =
       b1.has_value() ? ElementCompute(1) : ElementCompute(0);
 
-  using ThreadblockShape = cutlass::gemm::GemmShape<128, 64, 32>;
+  using ThreadblockShape = cutlass::gemm::GemmShape<64, 32, 32>;
   using WarpShape = cutlass::gemm::GemmShape<64, 32, 32>;
   using InstructionShape = cutlass::gemm::GemmShape<16, 8, 16>;
 
