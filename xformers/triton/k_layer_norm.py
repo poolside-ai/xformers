@@ -50,7 +50,7 @@ def layer_norm_fw(X, Y, W, B, M, V, stride, N, eps, affine: tl.constexpr, BLOCK_
 
     mask = cols < N
     if affine:
-        w = tl.load(W + cols, mask=mask, other=1.0)
+        w = tl.load(W + cols, mask=mask, other=0.0)
         b = tl.load(B + cols, mask=mask, other=0.0)
         y = y * (1 + w) + b
 
