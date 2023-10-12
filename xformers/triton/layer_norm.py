@@ -43,8 +43,8 @@ class _LayerNorm(torch.autograd.Function):
         M, N = x_arg.shape
 
         # allocate mean and std, they'll be used in the backward pass
-        mean = torch.empty((M,), dtype=torch.float32, device="cuda")
-        rstd = torch.empty((M,), dtype=torch.float32, device="cuda")
+        mean = torch.empty((M,), dtype=torch.float32, device=x.device)
+        rstd = torch.empty((M,), dtype=torch.float32, device=x.device)
 
         # Less than 64KB per feature: enqueue fused kernel
         MAX_FUSED_SIZE = 65536 // x.element_size()
@@ -114,7 +114,7 @@ class _LayerNorm(torch.autograd.Function):
             GROUP_SIZE_M = GROUP_SIZE_M // 2
 
         # allocate output
-        locks = torch.zeros(2 * GROUP_SIZE_M, dtype=torch.int32, device="cuda")
+        locks = torch.zeros(2 * GROUP_SIZE_M, dtype=torch.int32, device=x.device)
         t_args = {"dtype": x.dtype, "device": x.device}
         _dw = torch.zeros((GROUP_SIZE_M, x.size(-1)), **t_args)
         _db = torch.zeros_like(_dw)
@@ -237,7 +237,7 @@ def layer_norm(
     if y is None:
         y = torch.nn.functional.layer_norm(
             x, [x.shape[-1]], weight=weight, bias=bias, eps=eps
-        )
+        ).to(torch.get_autocast_gpu_dtype())
 
     assert y.dtype == input_dtype
     return y
