@@ -36,8 +36,8 @@ class InputProjection(nn.Module):
         value_proj_params: Optional[InputProjectionConfig],
         use_separate_proj_weight: bool = True,
     ):
-
         super().__init__()
+        self.streams = [torch.cuda.Stream() for _ in range(3)]
 
         self.out_features = query_proj_params.out_features
 
@@ -57,7 +57,7 @@ class InputProjection(nn.Module):
         else:
             logger.info(
                 "No Key projection parameters were passed, assuming that the weights"
-                + " are shared with the query projection"
+                + " are shared with the query projection",
             )
             self.k_proj = self.q_proj
 
@@ -70,7 +70,7 @@ class InputProjection(nn.Module):
         else:
             logger.info(
                 "No Value projection parameters were passed, assuming that the weights"
-                + " are shared with the query projection"
+                + " are shared with the query projection",
             )
             self.v_proj = self.q_proj
 
@@ -89,11 +89,15 @@ class InputProjection(nn.Module):
         # One projection per input tensor
 
         # NOTE: Would it make sense to catch self attention + shared weights, to skip a projection step ?
-
-        q, k, v = map(
-            lambda fn, x: fn(x),
+        results = []
+        mainstream = torch.cuda.current_stream()
+        for stream, proj, x in zip(
+            self.streams,
             [self.q_proj, self.k_proj, self.v_proj],
             [query, key, value],
-        )
+        ):
+            with torch.cuda.stream(stream):
+                results.append(proj(x))
+            mainstream.wait_stream(stream)
 
-        return q, k, v
+        return tuple(*results)
