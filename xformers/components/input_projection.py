@@ -89,8 +89,10 @@ class InputProjection(nn.Module):
         # One projection per input tensor
 
         # NOTE: Would it make sense to catch self attention + shared weights, to skip a projection step ?
-        results = []
+        results: list[torch.Tensor] = []
         mainstream = torch.cuda.current_stream()
+        for stream in self.streams:
+            stream.wait_stream(mainstream)
         for stream, proj, x in zip(
             self.streams,
             [self.q_proj, self.k_proj, self.v_proj],
@@ -100,4 +102,4 @@ class InputProjection(nn.Module):
                 results.append(proj(x))
             mainstream.wait_stream(stream)
 
-        return tuple(*results)
+        return tuple(results)

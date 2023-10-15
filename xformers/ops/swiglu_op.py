@@ -215,8 +215,13 @@ def _eager_functional_swiglu(
     w3: torch.Tensor,
     b3: torch.Tensor,
 ) -> torch.Tensor:
-    x1 = F.linear(x, w1, b1)
-    x2 = F.linear(x, w2, b2)
+    s1, s2 = (torch.cuda.Stream() for _ in range(2))
+    with torch.cuda.stream(s1):
+        x1 = F.linear(x, w1, b1)
+    with torch.cuda.stream(s2):
+        x2 = F.linear(x, w2, b2)
+    torch.cuda.current_stream().wait_stream(s1)
+    torch.cuda.current_stream().wait_stream(s2)
     hidden = F.silu(x1) * x2
     return F.linear(hidden, w3, b3)
 
