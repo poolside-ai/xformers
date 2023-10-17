@@ -30,7 +30,7 @@ _triton_registered_warnings = False
 class _LayerNorm(torch.autograd.Function):
     @staticmethod
     @custom_fwd(cast_inputs=_triton_layernorm_cast)
-    def forward(ctx, x, weight, bias, eps):
+    def forward(ctx, x, weight, bias, eps, grad_dtype):
         # catch eps being too small if the tensors are fp16
         if x.dtype == torch.float16:
             eps = max(eps, 1.6e-5)
@@ -84,6 +84,7 @@ class _LayerNorm(torch.autograd.Function):
         ctx.save_for_backward(x, mean, rstd, weight)
         ctx.BLOCK_SIZE_N = BLOCK_SIZE_N
         ctx.num_warps = num_warps
+        ctx.grad_dtype = grad_dtype if grad_dtype is not None else x.dtype
 
         return y.reshape_as(x)
 
@@ -115,10 +116,9 @@ class _LayerNorm(torch.autograd.Function):
 
         # allocate output
         locks = torch.zeros(2 * GROUP_SIZE_M, dtype=torch.int32, device=x.device)
-        t_args = {"dtype": x.dtype, "device": x.device}
-        _dw = torch.zeros((GROUP_SIZE_M, x.size(-1)), **t_args)
+        _dw = torch.zeros((GROUP_SIZE_M, x.size(-1)), dtype=torch.float32, device=x.device)
         _db = torch.zeros_like(_dw)
-        dw = torch.empty((x.size(-1),), **t_args)
+        dw = torch.empty((x.size(-1),), dtype=ctx.grad_dtype, device=x.device)
         db = torch.empty_like(dw)
         dy = dy.contiguous()
         dx = torch.empty_like(dy)
@@ -163,7 +163,7 @@ class _LayerNorm(torch.autograd.Function):
         # fmt: on
 
         dx = dx.reshape_as(dy)
-        return dx, dw, db, None
+        return dx, dw, db, None, None
 
 
 class FusedLayerNorm(nn.Module):
@@ -171,7 +171,7 @@ class FusedLayerNorm(nn.Module):
     Handle a layer normalization, like torch.nn.LayerNorm_.
 
     This implementation should be measurably faster than the default PyTorch layernorm (as of PyTorch 1.9),
-    both for training and inference worloads.
+    both for training and inference workloads.
 
     .. NOTE: Computations under Torch AMP are kept as float32 by default, one can change this to be (b)float16
         by setting the flag `xformers.triton.k_layer_norm._triton_layernorm_cast = torch.(b)float16`
@@ -190,7 +190,11 @@ class FusedLayerNorm(nn.Module):
         self.epsilon = eps
 
     def forward(self, x):
-        return layer_norm(x, self.weight, self.bias, self.epsilon)
+        if (grad := self.weight.grad) is not None:
+            grad_dtype = grad.dtype
+        else:
+            grad_dtype = None
+        return layer_norm(x, self.weight, self.bias, self.epsilon, grad_dtype)
 
     def init_weights(self, *args, **kwargs):
         with torch.no_grad():
@@ -206,6 +210,7 @@ def layer_norm(
     weight: Optional[torch.Tensor] = None,
     bias: Optional[torch.Tensor] = None,
     eps: float = 1e-06,
+    grad_dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
     input_dtype = x.dtype
 
@@ -222,7 +227,7 @@ def layer_norm(
             and weight is not None
             and bias is not None
         ):
-            y = _LayerNorm.apply(x, weight, bias, eps)
+            y = _LayerNorm.apply(x, weight, bias, eps, grad_dtype)
     except RuntimeError as e:
         # Catch cases where the current GPU does not have enough registers to hold a full tensor line
         # fallback to PyTorch's implementation, which streams the tensor in and out
