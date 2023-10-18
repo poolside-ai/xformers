@@ -130,7 +130,12 @@ class xFormerEmbeddingBlock(torch.nn.Module):
     def from_config(cls, config: xFormerEncoderConfig, **kwargs):
         return cls(config, **kwargs)
 
-    def forward(self, x: torch.Tensor, *args, **kwargs):
+    def forward(
+        self,
+        x: torch.Tensor,
+        att_mask: Optional[Union[torch.Tensor, AttentionMask]] = None,
+        input_mask: Optional[torch.Tensor] = None,
+    ):
         if self.patch_emb is not None:
             x = self.patch_emb(x)
 
