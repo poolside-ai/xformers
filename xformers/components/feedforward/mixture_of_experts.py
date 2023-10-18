@@ -8,9 +8,11 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, Union
+import warnings
 
 import torch
 
+from xformers import UnavailableComponentWarning
 from xformers.components import Activation
 from xformers.components.feedforward import (
     Feedforward,
@@ -30,9 +32,11 @@ try:
     from xformers.components.feedforward import MLP
 
 except ImportError:
-    logger.warning(
-        "Either FairScale or torch distributed is not available, MixtureOfExperts will not be exposed."
-        " Please install them if you would like to use MoE"
+    warnings.warn(
+        "Either FairScale or torch distributed is not available, "
+        "MixtureOfExperts will not be exposed. "
+        "Please install them if you would like to use MoE",
+        UnavailableComponentWarning,
     )
     _is_fairscale_available = False
 
