@@ -18,6 +18,11 @@ except ImportError:
 
 logger = logging.getLogger("xformers")
 
+
+class UnavailableComponentWarning(UserWarning):
+    pass
+
+
 _has_cpp_library: bool = _cpp_lib._cpp_library_load_exception is None
 
 # Set to true to utilize functorch
