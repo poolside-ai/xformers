@@ -91,15 +91,16 @@ class InputProjection(nn.Module):
         # NOTE: Would it make sense to catch self attention + shared weights, to skip a projection step ?
         results: list[torch.Tensor] = []
         mainstream = torch.cuda.current_stream()
-        for stream in self.streams:
-            stream.wait_stream(mainstream)
         for stream, proj, x in zip(
             self.streams,
             [self.q_proj, self.k_proj, self.v_proj],
             [query, key, value],
         ):
+            stream.wait_stream(mainstream)
+            with torch.no_grad():
+                weight, bias = proj.weight.to(x.dtype), proj.bias.to(x.dtype)
             with torch.cuda.stream(stream):
-                results.append(proj(x))
+                results.append(torch.nn.functional.linear(x, weight, bias))
             mainstream.wait_stream(stream)
 
         return tuple(results)
