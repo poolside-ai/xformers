@@ -262,7 +262,9 @@ class MultiHeadDispatch(nn.Module):
         )
 
         # Output projection, dropout and good to go
-        y = self.resid_drop(self.proj(y))
+        with torch.no_grad():
+            proj_weight, proj_bias = self.proj.weight.to(y.dtype), self.proj.bias.to(y.dtype)
+        y = self.resid_drop(torch.nn.functional.linear(y, proj_weight, proj_bias))
 
         # Return the same sequence size as the input
         return y
