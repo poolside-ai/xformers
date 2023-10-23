@@ -97,8 +97,7 @@ class InputProjection(nn.Module):
             [query, key, value],
         ):
             stream.wait_stream(mainstream)
-            with torch.no_grad():
-                weight, bias = proj.weight.to(x.dtype), proj.bias.to(x.dtype)
+            weight, bias = proj.weight.to(x.dtype), proj.bias.to(x.dtype)
             with torch.cuda.stream(stream):
                 results.append(torch.nn.functional.linear(x, weight, bias))
             mainstream.wait_stream(stream)
