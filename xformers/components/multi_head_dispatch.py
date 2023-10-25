@@ -5,26 +5,45 @@
 
 
 import logging
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, InitVar
 from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
 from torch.nn.init import constant_
 
+from xformers import _is_triton_available
 from xformers.components.attention import Attention
+from xformers.components.cast_buffers import LinearWeightBias
 from xformers.components.input_projection import (
     InputProjection,
+    InputProjectionBuffers,
     InputProjectionConfig,
 )
 from xformers.components.positional_embedding import RotaryEmbedding
-from xformers import _is_triton_available
+
 
 if _is_triton_available():
     from xformers.triton.dropout import FusedDropoutBias
 
 
 logger = logging.getLogger("xformers")
+
+
+# this cannot be a dataclass, otherwise the config wrapper converts it to a dict
+class AttentionBuffers:
+    __slots__ = ("out_proj", "in_proj")
+
+    out_proj: LinearWeightBias
+    in_proj: InputProjectionBuffers
+
+    def __init__(self, out_proj: LinearWeightBias, in_proj: InputProjectionBuffers) -> None:
+        self.out_proj = out_proj
+        self.in_proj = in_proj
+
+    def __deepcopy__(self, memo: dict) -> "AttentionBuffers":
+        # never clone self
+        return self
 
 
 @dataclass
@@ -40,6 +59,7 @@ class MultiHeadDispatchConfig:
     use_separate_proj_weight: Optional[bool]
     use_rotary_embeddings: Optional[bool]
     out_proj: Optional[nn.Module]
+    cast_buffers: AttentionBuffers = None
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -94,6 +114,7 @@ class MultiHeadDispatch(nn.Module):
         in_proj_container: Optional[InputProjection] = None,
         use_rotary_embeddings: Optional[bool] = False,
         out_proj: Optional[nn.Module] = None,
+        cast_buffers: AttentionBuffers | None = None,
         *args,
         **kwargs,
     ):
@@ -140,6 +161,7 @@ class MultiHeadDispatch(nn.Module):
                         dim_model, dim_value, bias=bias[2]
                     ),
                     use_separate_proj_weight=use_separate_proj_weight,
+                    cast_buffers=cast_buffers.in_proj if cast_buffers is not None else None,
                 )
             )
 
@@ -157,6 +179,7 @@ class MultiHeadDispatch(nn.Module):
         )
         if isinstance(self.proj, nn.Linear) and self.proj.bias is not None:
             constant_(self.proj.bias, 0.0)
+        self.cast_buffers = cast_buffers
 
     def forward(
         self,
@@ -262,7 +285,19 @@ class MultiHeadDispatch(nn.Module):
         )
 
         # Output projection, dropout and good to go
-        proj_weight, proj_bias = self.proj.weight.to(y.dtype), self.proj.bias.to(y.dtype)
+        if torch.is_autocast_enabled():
+            if self.cast_buffers is None:
+                dtype = torch.get_autocast_gpu_dtype()
+                proj_weight, proj_bias = self.proj.weight.to(dtype), self.proj.bias.to(dtype)
+            else:
+                lwb = self.cast_buffers.out_proj
+                proj_weight = self.proj.weight.super_copy(lwb.weight)
+                if self.proj.bias is not None:
+                    proj_bias = self.proj.bias.super_copy(lwb.bias)
+                else:
+                    proj_bias = None
+        else:
+            proj_weight, proj_bias = self.proj.weight, self.proj.bias
         y = self.resid_drop(torch.nn.functional.linear(y, proj_weight, proj_bias))
 
         # Return the same sequence size as the input
