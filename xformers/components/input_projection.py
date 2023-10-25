@@ -8,13 +8,33 @@
 
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, InitVar
 from typing import Optional, Tuple
 
 import torch
 from torch import nn
 
+from xformers.components.cast_buffers import LinearWeightBias
+
 logger = logging.getLogger("xformers")
+
+
+# this cannot be a dataclass, otherwise the config wrapper converts it to a dict
+class InputProjectionBuffers:
+    __slots__ = ("q", "k", "v")
+
+    q: LinearWeightBias
+    k: LinearWeightBias
+    v: LinearWeightBias
+
+    def __init__(self, q: LinearWeightBias, k: LinearWeightBias, v: LinearWeightBias) -> None:
+        self.q = q
+        self.k = k
+        self.v = v
+
+    def __deepcopy__(self, memo: dict) -> "InputProjectionBuffers":
+        # never clone self
+        return self
 
 
 @dataclass
@@ -22,6 +42,7 @@ class InputProjectionConfig:
     in_features: int
     out_features: int
     bias: bool
+    cast_buffers: InputProjectionBuffers = None
 
 
 class InputProjection(nn.Module):
@@ -35,6 +56,7 @@ class InputProjection(nn.Module):
         key_proj_params: Optional[InputProjectionConfig],
         value_proj_params: Optional[InputProjectionConfig],
         use_separate_proj_weight: bool = True,
+        cast_buffers: InitVar[InputProjectionBuffers | None] = None,
     ):
         super().__init__()
         self.streams = [torch.cuda.Stream() for _ in range(3)]
@@ -80,6 +102,8 @@ class InputProjection(nn.Module):
                 self.k_proj.weight = self.q_proj.weight
                 self.v_proj.weight = self.q_proj.weight
 
+        self.cast_buffers = cast_buffers
+
     def forward(
         self,
         query: torch.Tensor,
@@ -91,14 +115,27 @@ class InputProjection(nn.Module):
         # NOTE: Would it make sense to catch self attention + shared weights, to skip a projection step ?
         results: list[torch.Tensor] = []
         mainstream = torch.cuda.current_stream()
-        for stream, proj, x in zip(
+        for stream, proj, x, cast_buffer_field in zip(
             self.streams,
             [self.q_proj, self.k_proj, self.v_proj],
             [query, key, value],
+            InputProjectionBuffers.__slots__,
         ):
-            stream.wait_stream(mainstream)
-            weight, bias = proj.weight.to(x.dtype), proj.bias.to(x.dtype)
             with torch.cuda.stream(stream):
+                stream.wait_stream(mainstream)
+                if torch.is_autocast_enabled():
+                    if self.cast_buffers is None:
+                        dtype = torch.get_autocast_gpu_dtype()
+                        weight, bias = proj.weight.to(dtype), proj.bias.to(dtype)
+                    else:
+                        lwb = getattr(self.cast_buffers, cast_buffer_field)
+                        weight = proj.weight.super_copy(lwb.weight)
+                        if proj.bias is not None:
+                            bias = proj.bias.super_copy(lwb.bias)
+                        else:
+                            bias = None
+                else:
+                    weight, bias = proj.weight, proj.bias
                 results.append(torch.nn.functional.linear(x, weight, bias))
             mainstream.wait_stream(stream)
 
