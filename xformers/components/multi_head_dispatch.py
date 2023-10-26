@@ -6,7 +6,7 @@
 
 import logging
 from dataclasses import asdict, dataclass, InitVar
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -60,6 +60,7 @@ class MultiHeadDispatchConfig:
     use_rotary_embeddings: Optional[bool]
     out_proj: Optional[nn.Module]
     cast_buffers: AttentionBuffers = None
+    matmul: Callable = torch.nn.functional.linear
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -115,6 +116,7 @@ class MultiHeadDispatch(nn.Module):
         use_rotary_embeddings: Optional[bool] = False,
         out_proj: Optional[nn.Module] = None,
         cast_buffers: AttentionBuffers | None = None,
+        matmul: Callable = torch.nn.functional.linear,
         *args,
         **kwargs,
     ):
@@ -152,16 +154,17 @@ class MultiHeadDispatch(nn.Module):
                 if in_proj_container is not None
                 else InputProjection(
                     query_proj_params=InputProjectionConfig(
-                        dim_model, dim_key, bias=bias[0]
+                        dim_model, dim_key, bias=bias[0],
                     ),
                     key_proj_params=InputProjectionConfig(
-                        dim_model, dim_key, bias=bias[1]
+                        dim_model, dim_key, bias=bias[1],
                     ),
                     value_proj_params=InputProjectionConfig(
-                        dim_model, dim_value, bias=bias[2]
+                        dim_model, dim_value, bias=bias[2],
                     ),
                     use_separate_proj_weight=use_separate_proj_weight,
                     cast_buffers=cast_buffers.in_proj if cast_buffers is not None else None,
+                    matmul=matmul,
                 )
             )
 
@@ -180,6 +183,7 @@ class MultiHeadDispatch(nn.Module):
         if isinstance(self.proj, nn.Linear) and self.proj.bias is not None:
             constant_(self.proj.bias, 0.0)
         self.cast_buffers = cast_buffers
+        self.matmul = matmul
 
     def forward(
         self,
@@ -298,7 +302,7 @@ class MultiHeadDispatch(nn.Module):
                     proj_bias = None
         else:
             proj_weight, proj_bias = self.proj.weight, self.proj.bias
-        y = self.resid_drop(torch.nn.functional.linear(y, proj_weight, proj_bias))
+        y = self.resid_drop(self.matmul(y, proj_weight, proj_bias))
 
         # Return the same sequence size as the input
         return y

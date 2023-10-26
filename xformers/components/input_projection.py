@@ -9,7 +9,7 @@
 
 import logging
 from dataclasses import dataclass, InitVar
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import torch
 from torch import nn
@@ -42,7 +42,6 @@ class InputProjectionConfig:
     in_features: int
     out_features: int
     bias: bool
-    cast_buffers: InputProjectionBuffers = None
 
 
 class InputProjection(nn.Module):
@@ -57,6 +56,7 @@ class InputProjection(nn.Module):
         value_proj_params: Optional[InputProjectionConfig],
         use_separate_proj_weight: bool = True,
         cast_buffers: InitVar[InputProjectionBuffers | None] = None,
+        matmul: Callable = torch.nn.functional.linear,
     ):
         super().__init__()
         self.streams = [torch.cuda.Stream() for _ in range(3)]
@@ -103,6 +103,7 @@ class InputProjection(nn.Module):
                 self.v_proj.weight = self.q_proj.weight
 
         self.cast_buffers = cast_buffers
+        self.matmul = matmul
 
     def forward(
         self,
@@ -136,7 +137,7 @@ class InputProjection(nn.Module):
                             bias = None
                 else:
                     weight, bias = proj.weight, proj.bias
-                results.append(torch.nn.functional.linear(x, weight, bias))
+                results.append(self.matmul(x, weight, bias))
             mainstream.wait_stream(stream)
 
         return tuple(results)
