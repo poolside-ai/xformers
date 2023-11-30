@@ -38,7 +38,7 @@ def layer_norm_fw(X, Y, W, B, M, V, stride, N, eps, affine: tl.constexpr, BLOCK_
     tl.store(M + row, mean)
 
     x_var = tl.sum(x_zm * x_zm, axis=0) / N
-    rstd = 1.0 / tl.sqrt(x_var + eps)
+    rstd = tl.math.rsqrt(x_var + eps)
 
     # Normalize, optionally affine
     y = x_zm * rstd
