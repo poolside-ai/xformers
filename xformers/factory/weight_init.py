@@ -57,11 +57,11 @@ def get_weight_init_fn(init_choice: xFormerWeightInit):
 
 # Define pattern matches
 def is_ffn(n):
-    return "feedforward" in n or ("wrap_ff" in n and not n.endswith("norm"))
+    return "g.net.sublayer" in n
 
 
 def is_mha_input_projection(n):
-    return "q_proj" in n or "k_proj" in n or "v_proj" in n
+    return "f.net.sublayer" in n
 
 
 # Define distribution helpers
