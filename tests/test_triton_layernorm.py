@@ -42,7 +42,8 @@ SHAPES = [
 )
 @pytest.mark.parametrize("shape", SHAPES)
 @pytest.mark.parametrize("amp", [True, False])
-def test_layernorm_parity(shape, amp):
+@pytest.mark.parametrize("bias", [True, False])
+def test_layernorm_parity(shape, amp, bias):
     """Check that PyTorch and Triton softmax give the same result"""
 
     # Get the same inputs
@@ -55,8 +56,8 @@ def test_layernorm_parity(shape, amp):
     eps = 1e-4
 
     # Initialize the two layers, weights are 1 and 0 by default, no randomness
-    torch_layernorm = torch.nn.LayerNorm(X.shape[-1], eps=eps).to("cuda")
-    triton_layernorm = FusedLayerNorm(X.shape[-1], affine=True, eps=eps).to("cuda")
+    torch_layernorm = torch.nn.LayerNorm(X.shape[-1], bias=bias, eps=eps).to("cuda")
+    triton_layernorm = FusedLayerNorm(X.shape[-1], affine=True, bias=bias, eps=eps).to("cuda")
 
     with autocast(enabled=amp):
         assert torch.allclose(X, X_)  # sanity checking, else all hell breaks loose
@@ -94,19 +95,20 @@ def test_layernorm_parity(shape, amp):
             + f" {torch.norm(triton_layernorm.weight.grad)}"
         )
 
-        # - gradient on the layernorm bias
-        assert torch.allclose(
-            torch_layernorm.bias.grad, triton_layernorm.bias.grad, atol=1e-3
-        ), (
-            f"Bias grad mismatch: {torch.norm(torch_layernorm.bias.grad)} vs."
-            + f" {torch.norm(triton_layernorm.bias.grad)}"
-        )
+        if bias:
+            # - gradient on the layernorm bias
+            assert torch.allclose(
+                torch_layernorm.bias.grad, triton_layernorm.bias.grad, atol=1e-3
+            ), (
+                f"Bias grad mismatch: {torch.norm(torch_layernorm.bias.grad)} vs."
+                + f" {torch.norm(triton_layernorm.bias.grad)}"
+            )
 
 
 @pytest.mark.skipif(not _triton_available, reason="Triton is not available")
 @pytest.mark.parametrize("dtype", [torch.float16, torch.float32, torch.bfloat16])
 def test_no_contiguous(dtype):
-    """Check that we don't choke on non-contigous tensors"""
+    """Check that we don't choke on non-contiguous tensors"""
     shape = (8, 384, 128)
 
     # Get the same inputs

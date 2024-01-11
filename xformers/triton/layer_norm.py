@@ -71,13 +71,17 @@ class _LayerNorm(torch.autograd.Function):
         # enqueue kernel
         # fmt: off
         layer_norm_fw[(M,)](
-            x_arg, y, weight, bias, mean, rstd,
+            x_arg, y,
+            weight if weight is not None else x_arg,
+            bias if bias is not None else x_arg,
+            mean, rstd,
             x_arg.stride(0),
             N,
             eps,
             num_warps=num_warps,
             BLOCK_SIZE_N=BLOCK_SIZE_N,
-            affine=weight is not None
+            affine=weight is not None,
+            bias=bias is not None,
         )
         # fmt: on
 
@@ -85,6 +89,7 @@ class _LayerNorm(torch.autograd.Function):
         ctx.BLOCK_SIZE_N = BLOCK_SIZE_N
         ctx.num_warps = num_warps
         ctx.grad_dtype = grad_dtype if grad_dtype is not None else x.dtype
+        ctx.bias = bias is not None
 
         return y.reshape_as(x)
 
@@ -117,9 +122,9 @@ class _LayerNorm(torch.autograd.Function):
         # allocate output
         locks = torch.zeros(2 * GROUP_SIZE_M, dtype=torch.int32, device=x.device)
         _dw = torch.zeros((GROUP_SIZE_M, x.size(-1)), dtype=torch.float32, device=x.device)
-        _db = torch.zeros_like(_dw)
+        _db = torch.zeros_like(_dw) if ctx.bias else _dw
         dw = torch.empty((x.size(-1),), dtype=ctx.grad_dtype, device=x.device)
-        db = torch.empty_like(dw)
+        db = torch.empty_like(dw) if ctx.bias else dw
         dy = dy.contiguous()
         dx = torch.empty_like(dy)
 
@@ -142,6 +147,7 @@ class _LayerNorm(torch.autograd.Function):
             x.stride(0),
             N,
             affine=weight is not None,
+            bias=ctx.bias,
             GROUP_SIZE_M=GROUP_SIZE_M,
             BLOCK_SIZE_N=ctx.BLOCK_SIZE_N,
             num_warps=num_warps
@@ -157,13 +163,14 @@ class _LayerNorm(torch.autograd.Function):
             _dw, _db, dw, db,
             GROUP_SIZE_M,
             N,
+            bias=ctx.bias,
             BLOCK_SIZE_M=32,
             BLOCK_SIZE_N=64
         )
         # fmt: on
 
         dx = dx.reshape_as(dy)
-        return dx, dw, db, None, None
+        return dx, dw, db if ctx.bias else None, None, None
 
 
 class FusedLayerNorm(nn.Module):
@@ -180,14 +187,17 @@ class FusedLayerNorm(nn.Module):
 
     """
 
-    def __init__(self, normalized_shape, affine=True, eps=1e-06):
+    def __init__(self, normalized_shape, affine=True, bias=True, eps=1e-06):
         super().__init__()
         if affine:
             self.weight = nn.Parameter(torch.ones(normalized_shape))
-            self.bias = nn.Parameter(torch.zeros(normalized_shape))
+            self.bias = nn.Parameter(torch.zeros(normalized_shape)) if bias else None
         else:
             self.weight = self.bias = None
         self.epsilon = eps
+
+    def extra_repr(self) -> str:
+        return f"affine={self.weight is not None}, bias={self.bias is not None}"
 
     def forward(self, x):
         if (grad := self.weight.grad) is not None:
@@ -225,7 +235,6 @@ def layer_norm(
             and torch.cuda.is_available()
             and x.is_cuda
             and weight is not None
-            and bias is not None
         ):
             y = _LayerNorm.apply(x, weight, bias, eps, grad_dtype)
     except RuntimeError as e:
@@ -242,7 +251,7 @@ def layer_norm(
     if y is None:
         y = torch.nn.functional.layer_norm(
             x, [x.shape[-1]], weight=weight, bias=bias, eps=eps
-        ).to(torch.get_autocast_gpu_dtype())
+        ).to(input_dtype)
 
     assert y.dtype == input_dtype
     return y
