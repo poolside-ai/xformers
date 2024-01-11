@@ -124,6 +124,7 @@ class xFormerEncoderConfig(xFormerBlockConfig):
 
     multi_head_config: Dict[str, Any]
     use_triton: bool
+    ln_bias: bool
     simplicial_embeddings: Optional[Dict[str, Any]]
     patch_embedding_config: Optional[Dict[str, Any]]
 
@@ -136,6 +137,7 @@ class xFormerEncoderConfig(xFormerBlockConfig):
         residual_norm_style: str = "post",
         normalization: NormalizationType = NormalizationType.LayerNorm,
         use_triton: bool = True,
+        ln_bias: bool = True,
         simplicial_embeddings: Optional[Dict[str, Any]] = None,
         patch_embedding_config: Optional[Dict[str, Any]] = None,
         **kwargs,
@@ -177,6 +179,7 @@ class xFormerEncoderConfig(xFormerBlockConfig):
 
         self.multi_head_config = multi_head_config
         self.use_triton = use_triton
+        self.ln_bias = ln_bias
         self.simplicial_embeddings = simplicial_embeddings
         self.patch_embedding_config = patch_embedding_config
 
@@ -203,6 +206,7 @@ class xFormerDecoderConfig(xFormerBlockConfig):
         residual_norm_style: str = "post",
         normalization: NormalizationType = NormalizationType.LayerNorm,
         use_triton: bool = True,
+        ln_bias: bool = True,
         **kwargs,
     ):
 
@@ -241,3 +245,4 @@ class xFormerDecoderConfig(xFormerBlockConfig):
         self.multi_head_config_masked = multi_head_config_masked
         self.multi_head_config_cross = multi_head_config_cross
         self.use_triton = use_triton
+        self.ln_bias = ln_bias

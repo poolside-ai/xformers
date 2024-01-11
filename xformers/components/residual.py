@@ -100,6 +100,7 @@ class PreNorm(nn.Module, RequiresWrappedInputs):
         sublayer: nn.Module,
         normalization: NormalizationType,
         use_triton: bool = True,
+        bias: bool = True,
     ):
 
         super().__init__()
@@ -108,7 +109,7 @@ class PreNorm(nn.Module, RequiresWrappedInputs):
             and use_triton
             and normalization == NormalizationType.LayerNorm
         ):
-            self.norm: Union[nn.LayerNorm, FusedLayerNorm] = FusedLayerNorm(d_norm)
+            self.norm: Union[nn.LayerNorm, FusedLayerNorm] = FusedLayerNorm(d_norm, bias=bias)
         else:
             self.norm = get_normalization_layer(normalization)(d_norm)
 
@@ -143,6 +144,7 @@ class PostNorm(nn.Module, RequiresWrappedInputs):
         sublayer: nn.Module,
         normalization: NormalizationType,
         use_triton: bool = True,
+        bias: bool = True,
     ):
         super().__init__()
         if (
@@ -150,7 +152,7 @@ class PostNorm(nn.Module, RequiresWrappedInputs):
             and use_triton
             and normalization == NormalizationType.LayerNorm
         ):
-            self.norm: Union[nn.LayerNorm, FusedLayerNorm] = FusedLayerNorm(d_norm)
+            self.norm: Union[nn.LayerNorm, FusedLayerNorm] = FusedLayerNorm(d_norm, bias=bias)
         else:
             self.norm = get_normalization_layer(normalization)(d_norm)
 

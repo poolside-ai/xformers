@@ -14,7 +14,12 @@ import triton.language as tl
 
 # fmt: off
 @triton.jit
-def layer_norm_fw(X, Y, W, B, M, V, stride, N, eps, affine: tl.constexpr, BLOCK_SIZE_N: tl.constexpr):
+def layer_norm_fw(
+    X, Y, W, B, M, V, stride, N, eps,
+    affine: tl.constexpr,
+    bias: tl.constexpr,
+    BLOCK_SIZE_N: tl.constexpr,
+):
     # fmt: on
     """
     Fused layernorm kernel over a 3d tensor.
@@ -48,7 +53,9 @@ def layer_norm_fw(X, Y, W, B, M, V, stride, N, eps, affine: tl.constexpr, BLOCK_
     if affine:
         w = tl.load(W + cols, mask=mask, other=1.0)
         b = tl.load(B + cols, mask=mask, other=0.0)
-        y = y * w + b
+        y *= w
+        if bias:
+            y += b
 
     y_ptrs = Y + row * stride + cols
     tl.store(y_ptrs, y, mask=mask)
@@ -63,6 +70,7 @@ def layer_norm_bwd_dx_fused(
     Lock, stride, N,
     # META-parameters
     affine: tl.constexpr,
+    bias: tl.constexpr,
     GROUP_SIZE_M: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
 ):
@@ -126,17 +134,20 @@ def layer_norm_bwd_dx_fused(
         # - we got the lock, accumulate this kernel's results with
         # the stored values.
         dw_ptrs = DW + lock_id * N + cols
-        db_ptrs = DB + lock_id * N + cols
+        if bias:
+            db_ptrs = DB + lock_id * N + cols
 
         if count == 0:
             # first store doesn't accumulate
             tl.atomic_xchg(Count, 1)
         else:
             partial_dw += tl.load(dw_ptrs, mask=mask, other=0.)
-            partial_db += tl.load(db_ptrs, mask=mask, other=0.)
+            if bias:
+                partial_db += tl.load(db_ptrs, mask=mask, other=0.)
 
         tl.store(dw_ptrs, partial_dw, mask=mask)
-        tl.store(db_ptrs, partial_db, mask=mask)
+        if bias:
+            tl.store(db_ptrs, partial_db, mask=mask)
 
         # release lock
         tl.atomic_xchg(Lock, 0)
@@ -148,8 +159,9 @@ def layer_norm_bwd_dx_fused(
 def layer_norm_bwd_dwdb(
     DW, DB, FINAL_DW, FINAL_DB,
     M, N,
+    bias: tl.constexpr,
     BLOCK_SIZE_M: tl.constexpr,
-    BLOCK_SIZE_N: tl.constexpr
+    BLOCK_SIZE_N: tl.constexpr,
 ):
     # fmt: on
 
@@ -159,7 +171,8 @@ def layer_norm_bwd_dwdb(
     mask_cols = cols < N
 
     dw = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
-    db = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
+    if bias:
+        db = tl.zeros((BLOCK_SIZE_M, BLOCK_SIZE_N), dtype=tl.float32)
 
     for i in range(0, M, BLOCK_SIZE_M):
         rows = i + tl.arange(0, BLOCK_SIZE_M)
@@ -167,13 +180,16 @@ def layer_norm_bwd_dwdb(
         mask_rm = rows < M
 
         dw += tl.load(DW + offs, mask=mask_rm[:, None] & mask_cols[None, :], other=0.0)
-        db += tl.load(DB + offs, mask=mask_rm[:, None] & mask_cols[None, :], other=0.0)
+        if bias:
+            db += tl.load(DB + offs, mask=mask_rm[:, None] & mask_cols[None, :], other=0.0)
 
     sum_dw = tl.sum(dw, axis=0)
-    sum_db = tl.sum(db, axis=0)
+    if bias:
+        sum_db = tl.sum(db, axis=0)
 
     cols = pid * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     mask_cols = cols < N
 
     tl.store(FINAL_DW + cols, sum_dw, mask=mask_cols)
-    tl.store(FINAL_DB + cols, sum_db, mask=mask_cols)
+    if bias:
+        tl.store(FINAL_DB + cols, sum_db, mask=mask_cols)

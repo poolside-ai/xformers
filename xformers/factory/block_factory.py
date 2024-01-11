@@ -39,6 +39,7 @@ def _get_ln_factory(
     residual_norm_style: Optional[ResidualNormStyle],
     use_triton: bool,
     residual: bool,
+    bias: bool,
     normalization: NormalizationType = NormalizationType.LayerNorm,
     residual_scale: float = 1.0,
 ):
@@ -58,7 +59,13 @@ def _get_ln_factory(
         if residual:
             if residual_norm_style == ResidualNormStyle.Pre:
                 return Residual(
-                    layer=PreNorm(d_model, sublayer, normalization, use_triton),
+                    layer=PreNorm(
+                        d_model,
+                        sublayer,
+                        normalization,
+                        use_triton=use_triton,
+                        bias=bias,
+                    ),
                     scale=None,
                 )
             elif residual_norm_style == ResidualNormStyle.Post:
@@ -66,7 +73,8 @@ def _get_ln_factory(
                     d_model,
                     Residual(layer=sublayer, scale=None),
                     normalization,
-                    use_triton,
+                    use_triton=use_triton,
+                    bias=bias,
                 )
             elif residual_norm_style == ResidualNormStyle.DeepNorm:
                 return PostNorm(
@@ -74,14 +82,15 @@ def _get_ln_factory(
                     Residual(layer=sublayer, scale=residual_scale),
                     normalization,
                     use_triton=use_triton,
+                    bias=bias,
                 )
             else:
                 raise ValueError
 
         return (
-            PreNorm(d_model, sublayer, normalization, use_triton)
+            PreNorm(d_model, sublayer, normalization, use_triton, bias)
             if residual_norm_style == ResidualNormStyle.Pre
-            else PostNorm(d_model, sublayer, normalization, use_triton)
+            else PostNorm(d_model, sublayer, normalization, use_triton, bias)
         )
 
     def ln_factory(sublayer: nn.Module):
@@ -176,6 +185,7 @@ class xFormerEncoderBlock(torch.nn.Module):
             config.dim_model,
             config.residual_norm_style,
             use_triton=config.use_triton,
+            bias=config.ln_bias,
             residual=True,
             residual_scale=residual_scale,
             normalization=config.normalization,
@@ -224,6 +234,7 @@ class xFormerEncoderBlock(torch.nn.Module):
             config.residual_norm_style,
             residual=False,
             use_triton=config.use_triton,
+            bias=config.ln_bias,
             normalization=config.normalization,
         )
 
@@ -307,6 +318,7 @@ class xFormerDecoderBlock(torch.nn.Module):
             config.dim_model,
             config.residual_norm_style,
             use_triton=config.use_triton,
+            bias=config.ln_bias,
             residual=True,
             residual_scale=residual_scale,
             normalization=config.normalization,
