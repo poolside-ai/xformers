@@ -56,12 +56,12 @@ def get_weight_init_fn(init_choice: xFormerWeightInit):
 
 
 # Define pattern matches
-def is_ffn(n):
-    return "feedforward" in n or ("wrap_ff" in n and not n.endswith("norm"))
+def is_ffn(module, name):
+    return isinstance(module, torch.nn.Linear) and "proj" not in name
 
 
-def is_mha_input_projection(n):
-    return "q_proj" in n or "k_proj" in n or "v_proj" in n
+def is_mha_projection(module, name):
+    return isinstance(module, torch.nn.Linear) and "proj" in name
 
 
 # Define distribution helpers
@@ -150,11 +150,11 @@ def _init_weights_vit_jax(
 ):
     """ViT weight initialization, matching JAX (Flax) impl"""
 
-    if is_ffn(name):
+    if is_ffn(module, name):
         _maybe_init_tensor(module, "bias", nn.init.normal_, std=1e-6)
         _maybe_init_tensor(module, "weight", torch.nn.init.xavier_uniform_, gain=gain)
 
-    elif is_mha_input_projection(name) or isinstance(module, nn.Linear):
+    elif is_mha_projection(module, name):
         if deepnorm_style and (
             "q_proj" in name.split(".") or "k_proj" in name.split(".")
         ):
@@ -191,11 +191,11 @@ def _init_weights_vit_moco(
         "deepnorm_style" not in kwargs.keys()
     ), "This initialization method does not support deepnorm"
 
-    if is_ffn(name):
+    if is_ffn(module, name):
         _maybe_init_tensor(module, "weight", torch.nn.init.xavier_uniform_, gain=gain)
         _maybe_init_tensor(module, "bias", nn.init.zeros_)
 
-    elif is_mha_input_projection(name) or isinstance(module, nn.Linear):
+    elif is_mha_projection(module, name):
         if isinstance(module.weight, torch.Tensor):
             val = (
                 math.sqrt(6.0 / float(module.weight.shape[0] + module.weight.shape[1]))
@@ -227,11 +227,11 @@ def _init_weights_small(
 ):
     """Follow the `Transformer Without Tears`_ initialization for self-attention"""
 
-    if is_ffn(name):
+    if is_ffn(module, name):
         _maybe_init_tensor(module, "weight", torch.nn.init.xavier_uniform_, gain=gain)
         _maybe_init_tensor(module, "bias", nn.init.normal_, std=1e-6)
 
-    elif is_mha_input_projection(name) or isinstance(module, nn.Linear):
+    elif is_mha_projection(module, name):
         # "small init" only scales the attention layers init, not the FFN
         if deepnorm_style and (
             "q_proj" in name.split(".") or "k_proj" in name.split(".")
