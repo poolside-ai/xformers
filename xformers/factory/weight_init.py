@@ -47,12 +47,7 @@ def get_weight_init_fn(init_choice: xFormerWeightInit):
     .. _Timm: https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/vision_transformer.py
     .. _MocoV3: https://github.com/facebookresearch/moco-v3
     """
-    return {
-        xFormerWeightInit.Timm: _init_weights_vit_timm,
-        xFormerWeightInit.ViT: _init_weights_vit_jax,
-        xFormerWeightInit.Moco: _init_weights_vit_moco,
-        xFormerWeightInit.Small: _init_weights_small,
-    }[init_choice]
+    return initializers[init_choice]
 
 
 # Define pattern matches
@@ -291,3 +286,11 @@ def _init_weights_vit_timm(
     if not hasattr(module, "init_weights"):
         for child_name, child_module in module.named_children():
             _init_weights_vit_timm(child_module, child_name, gain)
+
+
+initializers = {
+    xFormerWeightInit.Timm: _init_weights_vit_timm,
+    xFormerWeightInit.ViT: _init_weights_vit_jax,
+    xFormerWeightInit.Moco: _init_weights_vit_moco,
+    xFormerWeightInit.Small: _init_weights_small,
+}
