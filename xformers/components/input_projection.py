@@ -8,13 +8,19 @@
 
 
 import logging
-from dataclasses import dataclass, InitVar
+from dataclasses import InitVar, dataclass
 from typing import Callable, Optional, Tuple
 
 import torch
 from torch import nn
 
+from xformers import _is_triton_available
 from xformers.components.cast_buffers import LinearWeightBias
+
+if _is_triton_available():
+    from xformers.triton.layer_norm import FusedLayerNorm
+else:
+    FusedLayerNorm = torch.nn.LayerNorm
 
 logger = logging.getLogger("xformers")
 
@@ -57,6 +63,7 @@ class InputProjection(nn.Module):
         use_separate_proj_weight: bool = True,
         cast_buffers: InitVar[InputProjectionBuffers | None] = None,
         matmul: Callable = torch.nn.functional.linear,
+        qk_layernorm: bool = False,
     ):
         super().__init__()
         self.streams = [torch.cuda.Stream() for _ in range(3)]
@@ -104,6 +111,18 @@ class InputProjection(nn.Module):
 
         self.cast_buffers = cast_buffers
         self.matmul = matmul
+        if qk_layernorm:
+            self.q_ln = FusedLayerNorm(query_proj_params.out_features, bias=False)
+            self.k_ln = FusedLayerNorm(
+                (
+                    key_proj_params.out_features
+                    if key_proj_params is not None
+                    else query_proj_params.out_features
+                ),
+                bias=False,
+            )
+        else:
+            self.q_ln = self.k_ln = None
 
     def forward(
         self,
@@ -116,9 +135,10 @@ class InputProjection(nn.Module):
         # NOTE: Would it make sense to catch self attention + shared weights, to skip a projection step ?
         results: list[torch.Tensor] = []
         mainstream = torch.cuda.current_stream()
-        for stream, proj, x, cast_buffer_field in zip(
+        for stream, proj, ln, x, cast_buffer_field in zip(
             self.streams,
             [self.q_proj, self.k_proj, self.v_proj],
+            [self.q_ln, self.k_ln, None],
             [query, key, value],
             InputProjectionBuffers.__slots__,
         ):
@@ -137,7 +157,10 @@ class InputProjection(nn.Module):
                             bias = None
                 else:
                     weight, bias = proj.weight, proj.bias
-                results.append(self.matmul(x, weight, bias))
+                y = self.matmul(x, weight, bias)
+                if ln is not None:
+                    y = ln(y)
+                results.append(y)
             mainstream.wait_stream(stream)
 
         return tuple(results)

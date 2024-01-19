@@ -265,7 +265,13 @@ def test_different_seqlen(
 @pytest.mark.parametrize("proj_bias", [False, True])
 @pytest.mark.parametrize("same_sizes", [False, True])
 @pytest.mark.parametrize("same_settings", [False, True])
-def test_inproj(proj_bias: bool, same_sizes: bool, same_settings: bool):
+@pytest.mark.parametrize("qk_layernorm", [False, True])
+def test_inproj(
+    proj_bias: bool,
+    same_sizes: bool,
+    same_settings: bool,
+    qk_layernorm: bool,
+):
 
     test_config = {
         "name": "scaled_dot_product",
@@ -283,7 +289,7 @@ def test_inproj(proj_bias: bool, same_sizes: bool, same_settings: bool):
     in_params = InputProjectionConfig(MODEL, MODEL, proj_bias)
 
     if same_settings:
-        in_proj = InputProjection(in_params, None, None)
+        in_proj = InputProjection(in_params, None, None, qk_layernorm=qk_layernorm)
         out_features = MODEL
     else:
         out_features = MODEL if same_sizes else MODEL // 2
@@ -292,6 +298,7 @@ def test_inproj(proj_bias: bool, same_sizes: bool, same_settings: bool):
             in_params_flip,  # Q proj
             in_params_flip,  # K proj
             in_params,  # V proj
+            qk_layernorm=qk_layernorm,
         )
 
     # build a multi head dispatch to test this attention mechanism

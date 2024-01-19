@@ -61,6 +61,7 @@ class MultiHeadDispatchConfig:
     out_proj: Optional[nn.Module]
     cast_buffers: AttentionBuffers = None
     matmul: Callable = torch.nn.functional.linear
+    qk_layernorm: bool = False
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -117,6 +118,7 @@ class MultiHeadDispatch(nn.Module):
         out_proj: Optional[nn.Module] = None,
         cast_buffers: AttentionBuffers | None = None,
         matmul: Callable = torch.nn.functional.linear,
+        qk_layernorm: bool = False,
         *args,
         **kwargs,
     ):
@@ -165,6 +167,7 @@ class MultiHeadDispatch(nn.Module):
                     use_separate_proj_weight=use_separate_proj_weight,
                     cast_buffers=cast_buffers.in_proj if cast_buffers is not None else None,
                     matmul=matmul,
+                    qk_layernorm=qk_layernorm,
                 )
             )
 
