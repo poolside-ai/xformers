@@ -147,7 +147,11 @@ class InputProjection(nn.Module):
                 if torch.is_autocast_enabled():
                     if self.cast_buffers is None:
                         dtype = torch.get_autocast_gpu_dtype()
-                        weight, bias = proj.weight.to(dtype), proj.bias.to(dtype)
+                        weight = proj.weight.to(dtype)
+                        if proj.bias is not None:
+                            bias = proj.bias.to(dtype)
+                        else:
+                            bias = None
                     else:
                         lwb = getattr(self.cast_buffers, cast_buffer_field)
                         weight = proj.weight.super_copy(lwb.weight)
