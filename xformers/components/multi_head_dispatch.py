@@ -295,7 +295,11 @@ class MultiHeadDispatch(nn.Module):
         if torch.is_autocast_enabled():
             if self.cast_buffers is None:
                 dtype = torch.get_autocast_gpu_dtype()
-                proj_weight, proj_bias = self.proj.weight.to(dtype), self.proj.bias.to(dtype)
+                proj_weight = self.proj.weight.to(dtype)
+                if self.proj.bias is not None:
+                    proj_bias = self.proj.bias.to(dtype)
+                else:
+                    proj_bias = None
             else:
                 lwb = self.cast_buffers.out_proj
                 proj_weight = self.proj.weight.super_copy(lwb.weight)
