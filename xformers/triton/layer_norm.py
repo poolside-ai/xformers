@@ -200,7 +200,7 @@ class FusedLayerNorm(nn.Module):
         return f"affine={self.weight is not None}, bias={self.bias is not None}"
 
     def forward(self, x):
-        if (grad := self.weight.grad) is not None:
+        if self.weight is not None and (grad := self.weight.grad) is not None:
             grad_dtype = grad.dtype
         else:
             grad_dtype = None
