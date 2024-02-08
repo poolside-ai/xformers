@@ -8,21 +8,6 @@ from typing import Any, Dict, List, Type, TypeVar
 
 import torch
 
-
-def _load_cutlass3_ops():
-    import xformers
-    root = Path(xformers.__file__).parent
-    for path in torch.ops.loaded_libraries:
-        path = Path(path)
-        if path.is_relative_to(root):
-            torch.ops.load_library(path.with_stem("_C_cutlass3"))
-            break
-
-
-_load_cutlass3_ops()
-del _load_cutlass3_ops
-
-
 def get_operator(library: str, name: str):
     def no_such_operator(*args, **kwargs):
         raise RuntimeError(
