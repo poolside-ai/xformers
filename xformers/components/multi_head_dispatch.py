@@ -62,6 +62,7 @@ class MultiHeadDispatchConfig:
     cast_buffers: AttentionBuffers = None
     matmul: Callable = torch.nn.functional.linear
     qk_layernorm: bool = False
+    inplace_dropout: bool = True
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -92,6 +93,7 @@ class MultiHeadDispatch(nn.Module):
         attention: The attention mechanism (needs to be registered to the xformers library)
         bias: Whether to use bias for the projections : (Q, K, V, Output)
         residual_dropout: Amount of dropout on the residual path
+        inplace_dropout: Perform dropout forward in-place
         use_separate_proj_weight: Use different weights for the Q, K, V projections
         dim_key: Optionally use a different dimension for the key
         dim_value:  Optionally use a different dimension for the value
@@ -110,6 +112,7 @@ class MultiHeadDispatch(nn.Module):
         attention: Attention,
         bias: Tuple[bool, bool, bool, bool] = (True, True, True, True),
         residual_dropout: float = 0.0,
+        inplace_dropout: bool = True,
         use_separate_proj_weight: bool = True,
         dim_key: Optional[int] = None,
         dim_value: Optional[int] = None,
@@ -177,7 +180,11 @@ class MultiHeadDispatch(nn.Module):
         )
 
         # Regularization
-        self.resid_drop = FusedDropoutBias(p=residual_dropout, bias_shape=None, inplace_fwd=True)
+        self.resid_drop = FusedDropoutBias(
+            p=residual_dropout,
+            bias_shape=None,
+            inplace_fwd=inplace_dropout,
+        )
 
         # Output projection
         self.proj = (
