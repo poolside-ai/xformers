@@ -109,7 +109,8 @@ class PreNorm(nn.Module, RequiresWrappedInputs):
             and use_triton
             and normalization == NormalizationType.LayerNorm
         ):
-            self.norm: Union[nn.LayerNorm, FusedLayerNorm] = FusedLayerNorm(d_norm, bias=bias)
+            print('layernorm')
+            self.norm: Union[nn.LayerNorm, FusedLayerNorm] = FusedLayerNorm(d_norm, bias=bias, affine=False)
         else:
             self.norm = get_normalization_layer(normalization)(d_norm)
 
