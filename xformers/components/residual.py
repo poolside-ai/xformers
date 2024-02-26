@@ -11,12 +11,12 @@ import torch
 import torch.nn as nn
 
 from xformers import _is_triton_available
+from flash_attn.ops.rms_norm import RMSNorm
 
 if _is_triton_available():
     from xformers.triton.layer_norm import FusedLayerNorm
 
 from collections import namedtuple
-
 
 class ResidualNormStyle(str, Enum):
     """Support different residual path and norm styles.
@@ -32,6 +32,7 @@ class ResidualNormStyle(str, Enum):
 class NormalizationType(str, Enum):
     LayerNorm = "layernorm"
     Skip = "skip"
+    RMSNorm = "rmsnorm"
     # TODO: BatchNorm = "batchnorm"
     # TODO: GroupNorm = "groupnorm"
 
@@ -47,6 +48,7 @@ def get_normalization_layer(normalization_type: NormalizationType):
     return {
         NormalizationType.LayerNorm: nn.LayerNorm,
         NormalizationType.Skip: Skip,
+        NormalizationType.RMSNorm: RMSNorm,
     }[normalization_type]
 
 
