@@ -17,6 +17,8 @@ if _is_triton_available():
 
 from collections import namedtuple
 
+from poolside.monster.dump_tensor import TensorDumper
+
 
 class ResidualNormStyle(str, Enum):
     """Support different residual path and norm styles.
@@ -116,7 +118,7 @@ class PreNorm(nn.Module, RequiresWrappedInputs):
         self.sublayer = sublayer
         self.wrap_inputs = isinstance(sublayer, RequiresWrappedInputs)
 
-    def forward(self, inputs: List[torch.Tensor], **kwargs):
+    def forward(self, inputs: List[torch.Tensor], path: str, **kwargs):
         assert len(inputs) > 0
 
         # Perf improvement: if the inputs are all the same, only norm once
@@ -128,6 +130,9 @@ class PreNorm(nn.Module, RequiresWrappedInputs):
         else:
             # The inputs differ, norm them all
             inputs_normed = [self.norm(x_) for x_ in inputs]
+
+        assert len(inputs_normed) == 1
+        TensorDumper.dump(inputs_normed[0], f"{path}.norm.weight")
 
         if self.wrap_inputs:
             return self.sublayer(inputs=inputs_normed, **kwargs)
