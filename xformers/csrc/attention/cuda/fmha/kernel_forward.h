@@ -798,10 +798,7 @@ struct AttentionKernel {
             },
             [&](int accum_m) {});
       }
-      printf("check alibi");
-      assert(0);
       if (p.use_alibi) {
-        printf("use alibi");
         // apply bias from Alibi embeddings
         auto lane_offset = MM0::AccumLambdaIterator::get_lane_offset(
             my_lane_id, my_warp_id, iteratorC_tile_offset);
