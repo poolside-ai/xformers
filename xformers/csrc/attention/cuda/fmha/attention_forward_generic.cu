@@ -47,6 +47,7 @@ efficient_attention_forward_cutlass(
     bool compute_logsumexp,
     int64_t custom_mask_type,
     c10::optional<double> scale,
+    bool use_alibi,
     const c10::optional<at::Tensor>& seqlen_k) {
 #ifdef XFORMERS_MEM_EFF_ATTENTION_DISABLE_FORWARD
   TORCH_CHECK(
@@ -219,6 +220,8 @@ efficient_attention_forward_cutlass(
     } else {
       p.scale = float(1.0 / std::sqrt(float(p.head_dim)));
     }
+    
+    p.use_alibi = use_alibi;
 
     ASSIGN_CHECK_OVERFLOW(p.q_strideB, query.stride(0));
     ASSIGN_CHECK_OVERFLOW(p.k_strideB, key.stride(0));

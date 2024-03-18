@@ -670,6 +670,8 @@ struct AttentionBackwardKernel {
     int32_t gO_strideM = -1;
     int32_t gB_strideM = -1;
     int8_t gQKV_strideM_multiplier = 1; // 3 for packed, 1 otherwise
+    
+    bool use_alibi = false;
 
 #ifdef HAS_PYTORCH
     // dropout
@@ -1602,6 +1604,21 @@ struct AttentionBackwardKernel {
             },
             [&](int accum_n) {});
       }
+
+      if (p.use_alibi) {
+        // apply bias from Alibi embeddings
+        auto lane_offset = MatmulQK::AccumLambdaIterator::get_lane_offset(
+            lane_id, warp_id, output_tile_coords);
+        MatmulQK::AccumLambdaIterator::iterateRows(
+            lane_offset,
+            [&](int accum_n) {},
+            [&](int accum_m, int accum_n, int idx) {
+              // remember we are transposed
+              accum[idx] += pow(pow(2, -pow(2, -(log2(p.num_heads) - 3))), (blockIdx.y + 1)) * (query_start + accum_m - key_start - accum_n);
+            },
+            [&](int accum_n) {});
+      }
+
 
       // Apply mask
       if (p.custom_mask_type == CausalFromTopLeft ||

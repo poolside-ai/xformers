@@ -178,6 +178,8 @@ struct AttentionKernel {
 
     int32_t num_batches;
     int32_t num_heads;
+    
+    bool use_alibi = false;
 
     // dropout
     bool use_dropout;
@@ -792,6 +794,23 @@ struct AttentionKernel {
             [&](int accum_m, int accum_n, int idx) {
               if (accum_m < problem_size_0_m && accum_n < problem_size_0_n) {
                 accum[idx] += bias_tensor_ref.at({accum_m, accum_n});
+              }
+            },
+            [&](int accum_m) {});
+      }
+      printf("check alibi");
+      assert(0);
+      if (p.use_alibi) {
+        printf("use alibi");
+        // apply bias from Alibi embeddings
+        auto lane_offset = MM0::AccumLambdaIterator::get_lane_offset(
+            my_lane_id, my_warp_id, iteratorC_tile_offset);
+        MM0::AccumLambdaIterator::iterateRows(
+            lane_offset,
+            [&](int accum_m) {},
+            [&](int accum_m, int accum_n, int idx) {
+              if (accum_m < problem_size_0_m && accum_n < problem_size_0_n) {
+                accum[idx] += pow(pow(2, -pow(2, -(log2(p.num_heads) - 3))), (blockIdx.y + 1)) * (query_start + accum_m - iter_key_start - accum_n);
               }
             },
             [&](int accum_m) {});

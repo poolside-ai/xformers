@@ -119,6 +119,7 @@ def memory_efficient_attention(
     attn_bias: Optional[Union[torch.Tensor, AttentionBias]] = None,
     p: float = 0.0,
     scale: Optional[float] = None,
+    use_alibi: bool = False,
     *,
     op: Optional[AttentionOp] = None,
 ) -> torch.Tensor:
@@ -191,7 +192,7 @@ def memory_efficient_attention(
     """
     return _memory_efficient_attention(
         Inputs(
-            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale
+            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale, use_alibi=use_alibi
         ),
         op=op,
     )
@@ -204,6 +205,7 @@ def memory_efficient_attention_forward(
     attn_bias: Optional[Union[torch.Tensor, AttentionBias]] = None,
     p: float = 0.0,
     scale: Optional[float] = None,
+    use_alibi: bool = False,
     *,
     op: Optional[Type[AttentionFwOpBase]] = None,
 ) -> torch.Tensor:
@@ -212,7 +214,7 @@ def memory_efficient_attention_forward(
     """
     return _memory_efficient_attention_forward(
         Inputs(
-            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale
+            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale, use_alibi=use_alibi
         ),
         op=op,
     )
@@ -225,6 +227,7 @@ def memory_efficient_attention_forward_requires_grad(
     attn_bias: Optional[Union[torch.Tensor, AttentionBias]] = None,
     p: float = 0.0,
     scale: Optional[float] = None,
+    use_alibi: bool = False,
     *,
     op: Optional[Type[AttentionFwOpBase]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -240,7 +243,7 @@ def memory_efficient_attention_forward_requires_grad(
         )
     out, ctx = _memory_efficient_attention_forward_requires_grad(
         Inputs(
-            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale
+            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale, use_alibi=use_alibi
         ),
         op=op,
     )
@@ -257,6 +260,7 @@ def memory_efficient_attention_backward(
     attn_bias: Optional[Union[torch.Tensor, AttentionBias]] = None,
     p: float = 0.0,
     scale: Optional[float] = None,
+    use_alibi: bool = False,
     *,
     op: Optional[Type[AttentionBwOpBase]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -274,7 +278,7 @@ def memory_efficient_attention_backward(
     gradients = _memory_efficient_attention_backward(
         Context(out=output, lse=lse),
         Inputs(
-            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale
+            query=query, key=key, value=value, p=p, attn_bias=attn_bias, scale=scale, use_alibi=use_alibi
         ),
         grad,
         op=op,
