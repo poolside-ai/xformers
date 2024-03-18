@@ -46,6 +46,7 @@ mem_efficient_attention_backward_cutlass(
     int64_t rng_offset, // offset into random number sequence
     int64_t custom_mask_type,
     const c10::optional<double> scale,
+    bool use_alibi,
     // how many parallel blocks across the keys dimension. Use `-1` to
     // determine automatically
     int64_t num_splits_key) {
@@ -234,6 +235,7 @@ mem_efficient_attention_backward_cutlass(
     } else {
       p.scale = float(1.0 / std::sqrt(float(p.head_dim)));
     }
+    p.use_alibi = use_alibi;
     if (cu_seqlens_q.has_value()) {
       p.cu_seqlens_q_ptr = (int32_t*)cu_seqlens_q->data_ptr();
       p.cu_seqlens_k_ptr = (int32_t*)cu_seqlens_k->data_ptr();

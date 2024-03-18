@@ -35,6 +35,7 @@ class Inputs:
     attn_bias: Optional[Union[torch.Tensor, AttentionBias]] = None
     p: float = 0.0
     scale: Optional[float] = None
+    use_alibi: bool = False
 
     @property
     def device(self) -> torch.device:
@@ -150,6 +151,7 @@ class AttentionOpBase(BaseOperator):
     SUPPORTED_ATTN_BIAS_TYPES: Set[Any] = {type(None)}
     SUPPORTS_DROPOUT: bool
     SUPPORTS_CUSTOM_SCALE: bool = False
+    SUPPORTS_ALIBI: bool = False
     SUPPORTS_DIFFERENT_VALUE_EMBED: bool = False
     NAME: str
     OPERATOR_CATEGORY = "memory_efficient_attention"
@@ -191,6 +193,8 @@ class AttentionOpBase(BaseOperator):
             reasons.append("dropout > 0.0")
         if d.scale is not None and not cls.SUPPORTS_CUSTOM_SCALE:
             reasons.append("has custom scale")
+        if d.use_alibi and not cls.SUPPORTS_ALIBI:
+            reasons.append("has alibib")
         # bfloat16 is only supported on A100+
         # ... although the kernels can still run and give the
         # correct result
@@ -376,6 +380,7 @@ class AttentionOpDispatch:
         attn_bias: Optional[Union[torch.Tensor, AttentionBias]] = None,
         p: float = 0.0,
         scale: Optional[float] = None,
+        use_alibi: bool = False,
     ) -> "AttentionOpDispatch":
         """Here for backward compatibility"""
         from .dispatch import _dispatch_bw, _dispatch_fw
@@ -387,6 +392,7 @@ class AttentionOpDispatch:
             attn_bias=attn_bias,
             p=p,
             scale=scale,
+            use_alibi=use_alibi
         )
         return AttentionOpDispatch(op=(_dispatch_fw(inp), _dispatch_bw(inp)))
 

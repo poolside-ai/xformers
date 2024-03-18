@@ -167,6 +167,7 @@ class FwOp(AttentionFwOpBase):
     }
     SUPPORTS_DROPOUT = True
     SUPPORTS_CUSTOM_SCALE = True
+    SUPPORTS_ALIBI = True
     SUPPORTS_DIFFERENT_VALUE_EMBED = True
     NAME = "cutlassF"
 
@@ -195,6 +196,7 @@ class FwOp(AttentionFwOpBase):
             compute_logsumexp=needs_gradient,
             custom_mask_type=_custom_mask_type(inp.attn_bias),
             scale=inp.scale,
+            use_alibi=inp.use_alibi,
             seqlen_k=inp.attn_bias.k_seqinfo.seqlen
             if isinstance(inp.attn_bias, BlockDiagonalCausalWithOffsetPaddedKeysMask)
             else None,
@@ -270,6 +272,7 @@ class BwOp(AttentionBwOpBase):
     SUPPORTS_ATTN_BIAS_GRAD = True
     SUPPORTS_DROPOUT = FwOp.SUPPORTS_DROPOUT
     SUPPORTS_CUSTOM_SCALE = FwOp.SUPPORTS_CUSTOM_SCALE
+    SUPPORTS_ALIBI = FwOp.SUPPORTS_ALIBI
     SUPPORTS_DIFFERENT_VALUE_EMBED = FwOp.SUPPORTS_DIFFERENT_VALUE_EMBED
     NAME = "cutlassB"
 
@@ -360,6 +363,7 @@ class BwOp(AttentionBwOpBase):
             rng_offset=rng_offset,
             custom_mask_type=_custom_mask_type(inp.attn_bias),
             scale=inp.scale,
+            use_alibi=inp.use_alibi,
             num_splits_key=-1,  # Let C++ determine it
         )
 
