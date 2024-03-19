@@ -614,6 +614,7 @@ struct AttentionKernel {
     auto& mi = shared_storage.mi;
     auto& out_rescale = shared_storage.out_rescale;
     const uint32_t query_start = blockIdx.x * kQueriesPerBlock;
+    const accum_t alibi_base = powf(static_cast<float>(pow(2.0, -pow(2.0, -(log2(static_cast<double>(p.num_heads)) - 3.0)))), static_cast<float>(blockIdx.y + 1));
 
     static_assert(kQueriesPerBlock < kNumWarpsPerBlock * kWarpSize, "");
     if (thread_id() < kQueriesPerBlock) {
@@ -807,7 +808,7 @@ struct AttentionKernel {
             [&](int accum_m) {},
             [&](int accum_m, int accum_n, int idx) {
               if (accum_m < problem_size_0_m && accum_n < problem_size_0_n) {
-                accum[idx] += pow(pow(2, -pow(2, -(log2(p.num_heads) - 3))), (blockIdx.y + 1)) * (query_start + accum_m - iter_key_start - accum_n);
+                accum[idx] += alibi_base * (static_cast<float>(iter_key_start) + static_cast<float>(accum_n) - static_cast<float>(query_start) - static_cast<float>(accum_m));
               }
             },
             [&](int accum_m) {});
