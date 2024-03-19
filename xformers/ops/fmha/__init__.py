@@ -72,6 +72,7 @@ class _fMHA(torch.autograd.Function):
         ctx.p = inp.p
 
         ctx.scale = inp.scale
+        ctx.use_alibi = inp.use_alibi
         ctx.attn_bias_ctx = attn_bias_ctx
         ctx.n_args = len(args)
         return out
@@ -98,6 +99,7 @@ class _fMHA(torch.autograd.Function):
             attn_bias=cls.deserialize_bias(ctx.attn_bias_ctx, attn_bias_tensor),
             p=ctx.p,
             scale=ctx.scale,
+            use_alibi=ctx.use_alibi,
         )
         op_ctx = Context(
             lse=lse,
@@ -297,7 +299,7 @@ def _memory_efficient_attention(
 
     output_shape = inp.normalize_bmhk()
     return _fMHA.apply(
-        op, inp.query, inp.key, inp.value, inp.attn_bias, inp.p, inp.scale
+        op, inp.query, inp.key, inp.value, inp.attn_bias, inp.p, inp.scale, inp.use_alibi
     ).reshape(output_shape)
 
 
