@@ -194,7 +194,7 @@ class AttentionOpBase(BaseOperator):
         if d.scale is not None and not cls.SUPPORTS_CUSTOM_SCALE:
             reasons.append("has custom scale")
         if d.use_alibi and not cls.SUPPORTS_ALIBI:
-            reasons.append("has alibib")
+            reasons.append("has alibi")
         # bfloat16 is only supported on A100+
         # ... although the kernels can still run and give the
         # correct result
