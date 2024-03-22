@@ -36,6 +36,7 @@ class Inputs:
     p: float = 0.0
     scale: Optional[float] = None
     use_alibi: bool = False
+    alibi_scale: float = 1.
 
     @property
     def device(self) -> torch.device:
@@ -381,6 +382,7 @@ class AttentionOpDispatch:
         p: float = 0.0,
         scale: Optional[float] = None,
         use_alibi: bool = False,
+        alibi_scale: float = 1.,
     ) -> "AttentionOpDispatch":
         """Here for backward compatibility"""
         from .dispatch import _dispatch_bw, _dispatch_fw
@@ -392,7 +394,8 @@ class AttentionOpDispatch:
             attn_bias=attn_bias,
             p=p,
             scale=scale,
-            use_alibi=use_alibi
+            use_alibi=use_alibi,
+            alibi_scale=alibi_scale,
         )
         return AttentionOpDispatch(op=(_dispatch_fw(inp), _dispatch_bw(inp)))
 

@@ -197,9 +197,14 @@ class FwOp(AttentionFwOpBase):
             custom_mask_type=_custom_mask_type(inp.attn_bias),
             scale=inp.scale,
             use_alibi=inp.use_alibi,
-            seqlen_k=inp.attn_bias.k_seqinfo.seqlen
-            if isinstance(inp.attn_bias, BlockDiagonalCausalWithOffsetPaddedKeysMask)
-            else None,
+            alibi_scale=inp.alibi_scale,
+            seqlen_k=(
+                inp.attn_bias.k_seqinfo.seqlen
+                if isinstance(
+                    inp.attn_bias, BlockDiagonalCausalWithOffsetPaddedKeysMask
+                )
+                else None
+            ),
         )
         ctx: Optional[Context] = None
         if needs_gradient:
@@ -364,6 +369,7 @@ class BwOp(AttentionBwOpBase):
             custom_mask_type=_custom_mask_type(inp.attn_bias),
             scale=inp.scale,
             use_alibi=inp.use_alibi,
+            alibi_scale=inp.alibi_scale,
             num_splits_key=-1,  # Let C++ determine it
         )
 

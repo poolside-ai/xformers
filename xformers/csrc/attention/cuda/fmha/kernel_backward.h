@@ -672,6 +672,7 @@ struct AttentionBackwardKernel {
     int8_t gQKV_strideM_multiplier = 1; // 3 for packed, 1 otherwise
     
     bool use_alibi = false;
+    float alibi_scale = 1.f;
 
 #ifdef HAS_PYTORCH
     // dropout
@@ -1432,7 +1433,7 @@ struct AttentionBackwardKernel {
     cutlass::MatrixCoord no_offset{0, 0};
     accum_t scale = p.scale;
     int16_t thread_id = 32 * warp_id + lane_id;
-    const accum_t alibi_base = powf(powf(2.0f, -powf(2.0f, -(log2f(static_cast<float>(p.num_heads)) - 3.0f))), static_cast<float>(blockIdx.y + 1));
+    const accum_t alibi_base = powf(powf(2.0f, -powf(2.0f, -(log2f(static_cast<float>(p.num_heads)) - 3.0f))), static_cast<float>(blockIdx.y + 1)) * p.alibi_scale;
 
     auto rematerializeThreadIds = [&]() {
       // Prevents `nvcc` from keeping values deduced from
