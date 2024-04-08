@@ -125,6 +125,10 @@ class _CustomMaskType(int, Enum):
 
 
 def _custom_mask_type(bias: Optional[Union[torch.Tensor, AttentionBias]]) -> int:
+    if isinstance(bias, LowerTriangularMask):
+        if bias.from_bottom_right:
+            return int(_CustomMaskType.CausalFromBottomRight)
+        return int(_CustomMaskType.CausalFromTopLeft)
     if isinstance(
         bias,
         (

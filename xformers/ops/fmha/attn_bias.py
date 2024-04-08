@@ -65,11 +65,15 @@ class LowerTriangularMask(AttentionBias):
 
     A query Q cannot attend to a key which is farther from the
     initial key than Q is from the initial query.
+
+    `from_bottom_right` param changes key/query alignment if num_queries < num_keys.
+    By default queries are padded right and setting it to true makes queries pad left so the last query is aligned with last key
     """
 
-    def __init__(self, *tensor_args, **tensor_kwargs) -> None:
+    def __init__(self, from_bottom_right=False, *tensor_args, **tensor_kwargs) -> None:
         # NOTE: Unused arguments, we keep them for backward compatibility
         super().__init__()
+        self.from_bottom_right = from_bottom_right
 
     def materialize(
         self,

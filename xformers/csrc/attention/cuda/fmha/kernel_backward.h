@@ -1608,6 +1608,10 @@ struct AttentionBackwardKernel {
       }
 
       if (p.use_alibi) {
+        int shift = 0;
+        if (p.custom_mask_type == CausalFromBottomRight) {
+          shift = p.num_keys - p.num_queries;
+        }
         // apply bias from Alibi embeddings
         auto lane_offset = MatmulQK::AccumLambdaIterator::get_lane_offset(
             lane_id, warp_id, output_tile_coords);
@@ -1616,7 +1620,7 @@ struct AttentionBackwardKernel {
             [&](int accum_n) {},
             [&](int accum_m, int accum_n, int idx) {
               // remember we are transposed
-              accum[idx] += alibi_base * static_cast<float>(key_start + accum_m - query_start - accum_n);
+              accum[idx] += alibi_base * static_cast<float>(key_start + accum_m - query_start - accum_n - shift);
             },
             [&](int accum_n) {});
       }
