@@ -809,7 +809,7 @@ struct AttentionKernel {
             [&](int accum_m) {},
             [&](int accum_m, int accum_n, int idx) {
               if (accum_m < problem_size_0_m && accum_n < problem_size_0_n) {
-                accum[idx] += alibi_base * static_cast<float>(iter_key_start + accum_n - static_cast<int>(query_start) - accum_m);
+                accum[idx] += alibi_base * static_cast<float>(iter_key_start + accum_n - static_cast<int>(query_start) - accum_m - static_cast<int>(p.causal_diagonal_offset));
               }
             },
             [&](int accum_m) {});
