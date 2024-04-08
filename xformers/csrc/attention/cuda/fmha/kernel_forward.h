@@ -50,6 +50,7 @@
 
 #include <inttypes.h>
 
+
 using namespace gemm_kernel_utils;
 
 namespace {
@@ -615,6 +616,10 @@ struct AttentionKernel {
     auto& mi = shared_storage.mi;
     auto& out_rescale = shared_storage.out_rescale;
     const uint32_t query_start = blockIdx.x * kQueriesPerBlock;
+    const uint32_t query_offset = p.num_queries == 1 ? p.num_keys_absolute - 1 : 0;
+    //printf("%d, %d\n", static_cast<int>(query_offset), thread_id());
+    //printf("q %d\n", p.num_queries);
+    //printf("k %d\nk abs %d\n", p.num_keys, p.num_keys_absolute);
     const accum_t alibi_base = powf(powf(2.0f, -powf(2.0f, -(log2f(static_cast<float>(p.num_heads)) - 3.0f))), static_cast<float>(blockIdx.y + 1)) * p.alibi_scale;
 
     static_assert(kQueriesPerBlock < kNumWarpsPerBlock * kWarpSize, "");
@@ -809,7 +814,10 @@ struct AttentionKernel {
             [&](int accum_m) {},
             [&](int accum_m, int accum_n, int idx) {
               if (accum_m < problem_size_0_m && accum_n < problem_size_0_n) {
-                accum[idx] += alibi_base * static_cast<float>(iter_key_start + accum_n - static_cast<int>(query_start) - accum_m);
+                //printf("acc: %d, %d\nprob size: %d, %d\n", accum_m, accum_n, problem_size_0_m, problem_size_0_n);
+                //printf("lane: %d\n warp: %d\n", my_lane_id, my_warp_id);
+                printf("mi \nkKeysPerBlock %d\niter_key_start %d\nquery_offset %d\nquery_start %d\nm %d, n%d\n",kKeysPerBlock, iter_key_start, query_offset, query_start, accum_m, accum_n);
+                accum[idx] += alibi_base * static_cast<float>(iter_key_start + accum_n - static_cast<int>(query_offset) - static_cast<int>(query_start) - accum_m);
               }
             },
             [&](int accum_m) {});
@@ -824,7 +832,8 @@ struct AttentionKernel {
       // kKeysPerBlock, num_keys)) >= query_start + offset
       if (p.custom_mask_type &&
           cutlass::fast_min(iter_key_start + kKeysPerBlock, p.num_keys) >=
-              (query_start + p.causal_diagonal_offset)) {
+              (query_start + p.causal_diagonal_offset) && p.num_queries != 1) {
+        printf("AAAAAAHHHHHH");
         auto query_start = blockIdx.x * kQueriesPerBlock;
         auto lane_offset = MM0::AccumLambdaIterator::get_lane_offset(
             my_lane_id, my_warp_id, iteratorC_tile_offset);
