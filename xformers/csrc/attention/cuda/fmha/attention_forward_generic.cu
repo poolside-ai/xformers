@@ -49,6 +49,8 @@ efficient_attention_forward_cutlass(
     c10::optional<double> scale,
     bool use_alibi,
     double alibi_scale,
+    int64_t head_offset,
+    int64_t tp_size,
     const c10::optional<at::Tensor>& seqlen_k) {
 #ifdef XFORMERS_MEM_EFF_ATTENTION_DISABLE_FORWARD
   TORCH_CHECK(
@@ -224,6 +226,8 @@ efficient_attention_forward_cutlass(
     
     p.use_alibi = use_alibi;
     p.alibi_scale = alibi_scale;
+    p.head_offset = head_offset;
+    p.tp_size = tp_size;
 
     ASSIGN_CHECK_OVERFLOW(p.q_strideB, query.stride(0));
     ASSIGN_CHECK_OVERFLOW(p.k_strideB, key.stride(0));
