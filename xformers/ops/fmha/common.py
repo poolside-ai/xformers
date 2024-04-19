@@ -37,6 +37,8 @@ class Inputs:
     scale: Optional[float] = None
     use_alibi: bool = False
     alibi_scale: float = 1.
+    head_offset: int = 0
+    tp_size: int = 1
 
     @property
     def device(self) -> torch.device:

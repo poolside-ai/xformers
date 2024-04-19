@@ -202,6 +202,8 @@ class FwOp(AttentionFwOpBase):
             scale=inp.scale,
             use_alibi=inp.use_alibi,
             alibi_scale=inp.alibi_scale,
+            head_offset=inp.head_offset,
+            tp_size=inp.tp_size,
             seqlen_k=(
                 inp.attn_bias.k_seqinfo.seqlen
                 if isinstance(
@@ -374,6 +376,8 @@ class BwOp(AttentionBwOpBase):
             scale=inp.scale,
             use_alibi=inp.use_alibi,
             alibi_scale=inp.alibi_scale,
+            head_offset=inp.head_offset,
+            tp_size=inp.tp_size,
             num_splits_key=-1,  # Let C++ determine it
         )
 

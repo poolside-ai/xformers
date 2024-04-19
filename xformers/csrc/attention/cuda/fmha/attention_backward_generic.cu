@@ -48,6 +48,8 @@ mem_efficient_attention_backward_cutlass(
     const c10::optional<double> scale,
     bool use_alibi,
     double alibi_scale,
+    int64_t head_offset,
+    int64_t tp_size,
     // how many parallel blocks across the keys dimension. Use `-1` to
     // determine automatically
     int64_t num_splits_key) {
@@ -238,6 +240,8 @@ mem_efficient_attention_backward_cutlass(
     }
     p.use_alibi = use_alibi;
     p.alibi_scale = alibi_scale;
+    p.head_offset = head_offset;
+    p.tp_size = tp_size;
     if (cu_seqlens_q.has_value()) {
       p.cu_seqlens_q_ptr = (int32_t*)cu_seqlens_q->data_ptr();
       p.cu_seqlens_k_ptr = (int32_t*)cu_seqlens_k->data_ptr();

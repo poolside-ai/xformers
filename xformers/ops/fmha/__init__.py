@@ -74,6 +74,8 @@ class _fMHA(torch.autograd.Function):
         ctx.scale = inp.scale
         ctx.use_alibi = inp.use_alibi
         ctx.alibi_scale = inp.alibi_scale
+        ctx.head_offset = inp.head_offset
+        ctx.tp_size = inp.tp_size
         ctx.attn_bias_ctx = attn_bias_ctx
         ctx.n_args = len(args)
         return out
@@ -102,6 +104,8 @@ class _fMHA(torch.autograd.Function):
             scale=ctx.scale,
             use_alibi=ctx.use_alibi,
             alibi_scale=ctx.alibi_scale,
+            head_offset=ctx.head_offset,
+            tp_size=ctx.tp_size,
         )
         op_ctx = Context(
             lse=lse,
@@ -125,6 +129,8 @@ def memory_efficient_attention(
     scale: Optional[float] = None,
     use_alibi: bool = False,
     alibi_scale: float = 1.,
+    head_offset: int = 0,
+    tp_size: int = 1,
     *,
     op: Optional[AttentionOp] = None,
 ) -> torch.Tensor:
@@ -205,6 +211,8 @@ def memory_efficient_attention(
             scale=scale,
             use_alibi=use_alibi,
             alibi_scale=alibi_scale,
+            head_offset=head_offset,
+            tp_size=tp_size,
         ),
         op=op,
     )
@@ -219,6 +227,8 @@ def memory_efficient_attention_forward(
     scale: Optional[float] = None,
     use_alibi: bool = False,
     alibi_scale: float = 1.,
+    head_offset: int = 0,
+    tp_size: int = 1,
     *,
     op: Optional[Type[AttentionFwOpBase]] = None,
 ) -> torch.Tensor:
@@ -235,6 +245,8 @@ def memory_efficient_attention_forward(
             scale=scale,
             use_alibi=use_alibi,
             alibi_scale=alibi_scale,
+            head_offset=head_offset,
+            tp_size=tp_size,
         ),
         op=op,
     )
@@ -249,6 +261,8 @@ def memory_efficient_attention_forward_requires_grad(
     scale: Optional[float] = None,
     use_alibi: bool = False,
     alibi_scale: float = 1.,
+    head_offset: int = 0,
+    tp_size: int = 1,
     *,
     op: Optional[Type[AttentionFwOpBase]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -272,6 +286,8 @@ def memory_efficient_attention_forward_requires_grad(
             scale=scale,
             use_alibi=use_alibi,
             alibi_scale=alibi_scale,
+            head_offset=head_offset,
+            tp_size=tp_size,
         ),
         op=op,
     )
@@ -290,6 +306,8 @@ def memory_efficient_attention_backward(
     scale: Optional[float] = None,
     use_alibi: bool = False,
     alibi_scale: float = 1.,
+    head_offset: int = 0,
+    tp_size: int = 1,
     *,
     op: Optional[Type[AttentionBwOpBase]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -315,6 +333,8 @@ def memory_efficient_attention_backward(
             scale=scale,
             use_alibi=use_alibi,
             alibi_scale=alibi_scale,
+            head_offset=head_offset,
+            tp_size=tp_size,
         ),
         grad,
         op=op,
@@ -342,6 +362,8 @@ def _memory_efficient_attention(
         inp.scale,
         inp.use_alibi,
         inp.alibi_scale,
+        inp.head_offset,
+        inp.tp_size,
     ).reshape(output_shape)
 
 
