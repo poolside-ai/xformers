@@ -617,9 +617,7 @@ struct AttentionKernel {
     auto& mi = shared_storage.mi;
     auto& out_rescale = shared_storage.out_rescale;
     const uint32_t query_start = blockIdx.x * kQueriesPerBlock;
-    //const accum_t alibi_base = powf(powf(2.0f, -powf(2.0f, -(log2f(static_cast<float>(p.num_heads)) - 3.0f))), static_cast<float>(blockIdx.y + 1 + p.head_offset)) * p.alibi_scale;
     const accum_t alibi_base = powf(2.0f, (-8.0f / static_cast<float>(p.num_heads * p.tp_size)) * static_cast<float>(blockIdx.y + 1 + p.head_offset)) * p.alibi_scale;
-    //printf("head offset: %d", p.head_offset);
 
     static_assert(kQueriesPerBlock < kNumWarpsPerBlock * kWarpSize, "");
     if (thread_id() < kQueriesPerBlock) {

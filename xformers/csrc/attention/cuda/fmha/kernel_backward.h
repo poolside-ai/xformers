@@ -1435,7 +1435,6 @@ struct AttentionBackwardKernel {
     cutlass::MatrixCoord no_offset{0, 0};
     accum_t scale = p.scale;
     int16_t thread_id = 32 * warp_id + lane_id;
-    //const accum_t alibi_base = powf(powf(2.0f, -powf(2.0f, -(log2f(static_cast<float>(p.num_heads * p.)) - 3.0f))), static_cast<float>(blockIdx.y + 1 + p.head_offset)) * p.alibi_scale;
     const accum_t alibi_base = powf(2.0f, (-8.0f / static_cast<float>(p.num_heads * p.tp_size)) * static_cast<float>(blockIdx.y + 1 + p.head_offset)) * p.alibi_scale;
 
     auto rematerializeThreadIds = [&]() {
