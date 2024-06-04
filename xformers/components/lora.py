@@ -1,8 +1,10 @@
 from dataclasses import dataclass
-from typing import Callable
+import math
+from typing import Callable, Literal
 
 import torch
 from torch import nn
+from torch.nn.init import _calculate_fan_in_and_fan_out, _no_grad_trunc_normal_
 
 from xformers.triton.dropout import FusedDropoutBias
 
@@ -11,6 +13,7 @@ from xformers.triton.dropout import FusedDropoutBias
 class LoRAConfig:
     rank: int
     dropout: float
+    init: Literal["ortho", "zero_b", "none"]
     alpha: int = 16
 
 
@@ -30,9 +33,51 @@ class LoRA(nn.Module):
         else:
             self.dropout = lambda x: x * (config.alpha / config.rank)
         self.matmul = matmul
+        self.init = config.init
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         y = self.dropout(x)
         y = self.matmul(y, self.high_to_low_a.weight)
         y = self.matmul(y, self.low_to_high_b.weight)
         return y
+
+    def init_weights(self) -> None:
+        match self.init:
+            case "none":
+                pass
+            case "ortho":
+                dim_in, rank, dim_out = (
+                    self.high_to_low_a.in_features,
+                    self.high_to_low_a.out_features,
+                    self.low_to_high_b.out_features,
+                )
+                basis = torch.empty(
+                    rank,
+                    rank,
+                    device=self.high_to_low_a.device,
+                    dtype=torch.float32,
+                )
+                torch.nn.init.orthogonal_(basis)
+                combinations = torch.rand(dim_in + dim_out, rank // 2, device=basis.device)
+                torch.matmul(
+                    combinations[:dim_in],
+                    basis[: rank // 2],
+                    out=self.high_to_low_a.weight.T,
+                )
+                torch.matmul(
+                    combinations[dim_in:],
+                    basis[rank // 2 :],
+                    out=self.low_to_high_b.weight,
+                )
+            case "zero_b":
+                # xavier_normal_2sigma
+                fan_in, fan_out = _calculate_fan_in_and_fan_out(self.high_to_low_a.weight)
+                std = math.sqrt(2.0 / float(fan_in + fan_out))
+                _no_grad_trunc_normal_(
+                    self.high_to_low_a.weight,
+                    0.0,
+                    std / 0.87962566103423978,
+                    a=-2,
+                    b=2,
+                )
+                self.low_to_high_b.zero_()
