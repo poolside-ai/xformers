@@ -20,6 +20,7 @@ from xformers.components.input_projection import (
     InputProjectionBuffers,
     InputProjectionConfig,
 )
+from xformers.components.lora import LoRAConfig
 from xformers.components.positional_embedding import RotaryEmbedding
 
 
@@ -63,6 +64,7 @@ class MultiHeadDispatchConfig:
     matmul: Callable = torch.nn.functional.linear
     qk_layernorm: bool = False
     inplace_dropout: bool = True
+    lora: LoRAConfig | None = None
 
     def __getitem__(self, item):
         return getattr(self, item)
@@ -122,7 +124,7 @@ class MultiHeadDispatch(nn.Module):
         cast_buffers: AttentionBuffers | None = None,
         matmul: Callable = torch.nn.functional.linear,
         qk_layernorm: bool = False,
-        *args,
+        lora: LoRAConfig | dict | None = None,
         **kwargs,
     ):
         super().__init__()
@@ -148,6 +150,10 @@ class MultiHeadDispatch(nn.Module):
         self.dim_value_head = dim_value // num_heads
         self.dim_model = dim_model
         self.attention = attention
+        if lora is None:
+            lora = LoRAConfig(0, 0)
+        elif isinstance(lora, dict):
+            lora = LoRAConfig(**lora)
 
         # key, query, value projections for all heads
         # critical options are
@@ -159,13 +165,13 @@ class MultiHeadDispatch(nn.Module):
                 if in_proj_container is not None
                 else InputProjection(
                     query_proj_params=InputProjectionConfig(
-                        dim_model, dim_key, bias=bias[0],
+                        dim_model, dim_key, bias=bias[0], lora=lora,
                     ),
                     key_proj_params=InputProjectionConfig(
-                        dim_model, dim_key, bias=bias[1],
+                        dim_model, dim_key, bias=bias[1], lora=LoRAConfig(0, 0),
                     ),
                     value_proj_params=InputProjectionConfig(
-                        dim_model, dim_value, bias=bias[2],
+                        dim_model, dim_value, bias=bias[2], lora=lora,
                     ),
                     use_separate_proj_weight=use_separate_proj_weight,
                     cast_buffers=cast_buffers.in_proj if cast_buffers is not None else None,

@@ -25,7 +25,7 @@ BLOCK_N = 128  # NOTE: This should ideally be GPU dependent, big impact on perf
 class _dropout(torch.autograd.Function):
     @staticmethod
     @custom_fwd
-    def forward(ctx, x, p, bias, activation, trainable_bias, inplace_fwd, inplace_bwd):
+    def forward(ctx, x, p, bias, activation, scale, trainable_bias, inplace_fwd, inplace_bwd):
         # Soft-flatten an hypothetical 3rd dimension
         x_ = x.reshape(-1, x.shape[-1]).contiguous()
         if not inplace_fwd:
@@ -60,6 +60,7 @@ class _dropout(torch.autograd.Function):
                 p,
                 USE_BIAS=bias is not None,
                 ACTIVATION=activation,
+                SCALE=scale,
                 BLOCK_M=BLOCK_M,
                 BLOCK_N=BLOCK_N,
             )
@@ -73,6 +74,7 @@ class _dropout(torch.autograd.Function):
             p,
             USE_BIAS=bias is not None,
             ACTIVATION=activation,
+            SCALE=scale,
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
         )
@@ -81,6 +83,7 @@ class _dropout(torch.autograd.Function):
         ctx.save_for_backward(seeds, bias, x if activation is not None else None)
         ctx.trainable_bias = bias is not None and trainable_bias
         ctx.activation = activation
+        ctx.scale = scale
         ctx.p = p
         ctx.inplace = inplace_bwd
 
@@ -147,6 +150,7 @@ class _dropout(torch.autograd.Function):
             INPLACE=ctx.inplace,
             USE_BIAS=bias is not None,
             ACTIVATION=ctx.activation,
+            SCALE=ctx.scale,
             TRAINABLE_BIAS=ctx.trainable_bias,
             BLOCK_M=BLOCK_M,
             BLOCK_N=BLOCK_N,
@@ -162,6 +166,7 @@ class _dropout(torch.autograd.Function):
             None,
             None,
             None,
+            None,
         )
 
 
@@ -170,7 +175,9 @@ def dropout(
     p: float,
     bias: Optional[torch.Tensor] = None,
     activation: Optional[Activation] = None,
-    inplace: bool = False,
+    scale: float = 1.0,
+    inplace_fwd: bool = False,
+    inplace_bwd: bool = False,
 ):
     """
     Apply dropout on the input tensor.
@@ -197,8 +204,10 @@ def dropout(
         float(p),
         bias,
         activation_index,
+        scale,
         bias is not None and bias.requires_grad,
-        inplace,
+        inplace_fwd,
+        inplace_bwd,
     )
 
 
@@ -213,6 +222,7 @@ class FusedDropoutBias(torch.nn.Module):
         p: float,
         bias_shape: Optional[int],
         activation: Optional[Activation] = None,
+        scale: float = 1.0,
         inplace_fwd: bool = False,
         inplace_bwd: bool = False,
     ) -> None:
@@ -230,9 +240,9 @@ class FusedDropoutBias(torch.nn.Module):
             if bias_shape is not None
             else None
         )
-
         self.activation = get_triton_activation_index(self.activation_type)
         self.activation_pytorch = build_activation(self.activation_type)
+        self.scale = scale
         self.inplace_fwd = inplace_fwd
         self.inplace_bwd = inplace_bwd
 
@@ -255,7 +265,7 @@ class FusedDropoutBias(torch.nn.Module):
         # Catch a non-cuda setup, fallback to pytorch
         if not x.is_cuda or not perf_check or p == 0.0:
             x = x + self.bias if self.bias is not None else x
-            x = self.activation_pytorch(x)
+            x = self.activation_pytorch(x) * self.scale
             return torch.nn.functional.dropout(x, p) if p > 0.0 else x
 
         # The normal, Triton-backed path
@@ -264,6 +274,7 @@ class FusedDropoutBias(torch.nn.Module):
             p,
             self.bias,
             self.activation,
+            self.scale,
             True,
             self.inplace_fwd,
             self.inplace_bwd,
