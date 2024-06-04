@@ -54,21 +54,28 @@ class LoRA(nn.Module):
                 basis = torch.empty(
                     rank,
                     rank,
-                    device=self.high_to_low_a.device,
+                    device=self.high_to_low_a.weight.device,
                     dtype=torch.float32,
                 )
                 torch.nn.init.orthogonal_(basis)
                 combinations = torch.rand(dim_in + dim_out, rank // 2, device=basis.device)
-                torch.matmul(
-                    combinations[:dim_in],
-                    basis[: rank // 2],
-                    out=self.high_to_low_a.weight.T,
-                )
-                torch.matmul(
-                    combinations[dim_in:],
-                    basis[rank // 2 :],
-                    out=self.low_to_high_b.weight,
-                )
+                with torch.no_grad():
+                    torch.matmul(
+                        combinations[:dim_in],
+                        basis[: rank // 2],
+                        out=self.high_to_low_a.weight.T,
+                    )
+                    torch.matmul(
+                        combinations[dim_in:],
+                        basis[rank // 2 :],
+                        out=self.low_to_high_b.weight,
+                    )
+                    # normalize
+                    for param in (self.high_to_low_a, self.low_to_high_b):
+                        fan_in, fan_out = _calculate_fan_in_and_fan_out(param.weight)
+                        std = math.sqrt(2.0 / float(fan_in + fan_out))
+                        ratio = (std * math.sqrt(fan_in * fan_out)) / torch.norm(param.weight)
+                        param.weight.mul_(ratio)
             case "zero_b":
                 # xavier_normal_2sigma
                 fan_in, fan_out = _calculate_fan_in_and_fan_out(self.high_to_low_a.weight)
@@ -80,4 +87,4 @@ class LoRA(nn.Module):
                     a=-2,
                     b=2,
                 )
-                self.low_to_high_b.zero_()
+                self.low_to_high_b.weight.zero_()
