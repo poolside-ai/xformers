@@ -13,7 +13,7 @@ from xformers.triton.dropout import FusedDropoutBias
 class LoRAConfig:
     rank: int
     dropout: float
-    init: Literal["ortho", "zero_b", "none"]
+    init: Literal["ortho", "zero_b", "none"] = "ortho"
     alpha: int = 16
 
 
@@ -88,3 +88,5 @@ class LoRA(nn.Module):
                     b=2,
                 )
                 self.low_to_high_b.weight.zero_()
+            case _:
+                raise AssertionError(f"Unsupported LoRA initialization: {self.init}")
