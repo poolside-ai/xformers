@@ -16,6 +16,7 @@ from torch import nn
 
 from xformers import _is_triton_available
 from xformers.components.cast_buffers import LinearWeightBias
+from xformers.components.lora import LoRA, LoRAConfig
 
 if _is_triton_available():
     from xformers.triton.layer_norm import FusedLayerNorm
@@ -48,6 +49,7 @@ class InputProjectionConfig:
     in_features: int
     out_features: int
     bias: bool
+    lora: LoRAConfig
 
 
 class InputProjection(nn.Module):
@@ -76,6 +78,14 @@ class InputProjection(nn.Module):
             query_proj_params.out_features,
             query_proj_params.bias,
         )
+        if query_proj_params.lora.rank > 0:
+            self.q_lora = LoRA(
+                query_proj_params.in_features,
+                query_proj_params.out_features,
+                query_proj_params.lora,
+            )
+        else:
+            self.q_lora = None
 
         if key_proj_params is not None:
             self.k_proj = nn.Linear(
@@ -83,12 +93,21 @@ class InputProjection(nn.Module):
                 key_proj_params.out_features,
                 key_proj_params.bias,
             )
+            if key_proj_params.lora.rank > 0:
+                self.k_lora = LoRA(
+                    key_proj_params.in_features,
+                    key_proj_params.out_features,
+                    key_proj_params.lora,
+                )
+            else:
+                self.k_lora = None
         else:
             logger.info(
                 "No Key projection parameters were passed, assuming that the weights"
                 + " are shared with the query projection",
             )
             self.k_proj = self.q_proj
+            self.k_lora = self.q_lora
 
         if value_proj_params is not None:
             self.v_proj = nn.Linear(
@@ -96,12 +115,21 @@ class InputProjection(nn.Module):
                 value_proj_params.out_features,
                 value_proj_params.bias,
             )
+            if value_proj_params.lora.rank > 0:
+                self.v_lora = LoRA(
+                    value_proj_params.in_features,
+                    value_proj_params.out_features,
+                    value_proj_params.lora,
+                )
+            else:
+                self.v_lora = None
         else:
             logger.info(
                 "No Value projection parameters were passed, assuming that the weights"
                 + " are shared with the query projection",
             )
             self.v_proj = self.q_proj
+            self.v_lora = self.q_lora
 
         if not use_separate_proj_weight:
             # Compute optimization used at times, share the parameters in between Q/K/V
@@ -135,9 +163,10 @@ class InputProjection(nn.Module):
         # NOTE: Would it make sense to catch self attention + shared weights, to skip a projection step ?
         results: list[torch.Tensor] = []
         mainstream = torch.cuda.current_stream()
-        for stream, proj, ln, x, cast_buffer_field in zip(
+        for stream, proj, lora, ln, x, cast_buffer_field in zip(
             self.streams,
             [self.q_proj, self.k_proj, self.v_proj],
+            [self.q_lora, self.k_lora, self.v_lora],
             [self.q_ln, self.k_ln, None],
             [query, key, value],
             InputProjectionBuffers.__slots__,
@@ -162,6 +191,11 @@ class InputProjection(nn.Module):
                 else:
                     weight, bias = proj.weight, proj.bias
                 y = self.matmul(x, weight, bias)
+                if lora is not None:
+                    if torch.is_grad_enabled():
+                        y = y + lora(x)
+                    else:
+                        y.add_(lora(x))
                 if ln is not None:
                     y = ln(y)
                 results.append(y)

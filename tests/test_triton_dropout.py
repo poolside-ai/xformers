@@ -20,8 +20,7 @@ if _triton_available:
     try:
         import triton  # noqa: F401
 
-        from xformers.triton import dropout as triton_dropout
-        from xformers.triton.dropout import FusedDropoutBias
+        from xformers.triton.dropout import dropout as triton_dropout, FusedDropoutBias
         from xformers.triton.utils import gpu_capabilities_older_than_70
 
         _triton_available = True
@@ -218,9 +217,34 @@ def test_dropout_inplace(bias):
             if bias
             else None
         )
-        y = triton_dropout(x, p=0.1, bias=b, inplace=inplace)
+        y = triton_dropout(x, p=0.1, bias=b, inplace_fwd=inplace)
         assert y.data_ptr() == x.data_ptr() or not inplace
         torch.sum(y).backward()
         results.append((y, x.grad))
     assert (results[0][0] == results[1][0]).all()
     assert (results[0][1] == results[1][1]).all()
+
+
+def test_dropout_scale():
+    torch.random.manual_seed(0)
+    torch.cuda.manual_seed_all(0)
+    shape = (2, 16, 2048)
+
+    x = torch.normal(0, 1, size=shape, device="cuda", requires_grad=True)
+
+    torch.random.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+    fused_y = triton_dropout(x, p=0.1, bias=None, scale=0.5)
+    torch.sum(fused_y).backward()
+    fused_grad = x.grad.clone()
+
+    x.grad.zero_()
+    torch.random.manual_seed(42)
+    torch.cuda.manual_seed_all(42)
+    regular_y = triton_dropout(x, p=0.1, bias=None)
+    regular_y = regular_y * 0.5
+    torch.sum(regular_y).backward()
+    regular_grad = x.grad.clone()
+
+    assert torch.allclose(fused_y, regular_y)
+    assert torch.allclose(fused_grad, regular_grad)

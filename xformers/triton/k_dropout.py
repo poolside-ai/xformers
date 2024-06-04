@@ -46,6 +46,7 @@ def k_dropout_fw(
     M, N,
     p: tl.constexpr,
     ACTIVATION: tl.constexpr,
+    SCALE: tl.constexpr,
     # Meta-parameters
     BLOCK_M: tl.constexpr,
     BLOCK_N: tl.constexpr,
@@ -72,7 +73,7 @@ def k_dropout_fw(
 
     # good to go, start the layer computations
     col_mask = cols[None, :] < N
-    p_scale = 1. / (1. - p)
+    p_scale = SCALE / (1. - p)
     if USE_BIAS:
         b_ptrs = BIAS + cols[None, :]
         bias = tl.load(b_ptrs, mask=cols[None, :] < N, other=0.)
@@ -126,6 +127,7 @@ def k_dropout_bw(
     p: tl.constexpr,
     INPLACE: tl.constexpr,
     ACTIVATION: tl.constexpr,
+    SCALE: tl.constexpr,
     # Meta-parameters
     BLOCK_M: tl.constexpr,  # heuristics
     BLOCK_N: tl.constexpr,
@@ -162,7 +164,7 @@ def k_dropout_bw(
     # now go over the tiles
     grad_bias = tl.zeros((BLOCK_N,), dtype=tl.float32)
     col_mask = cols[None, :] < N
-    p_scale = 1. / (1. - p)
+    p_scale = SCALE / (1. - p)
 
     if USE_BIAS:
         b_ptrs = BIAS + cols[None, :]
