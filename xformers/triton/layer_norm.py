@@ -190,8 +190,8 @@ class FusedLayerNorm(nn.Module):
     def __init__(self, normalized_shape, affine=True, bias=True, eps=1e-06):
         super().__init__()
         if affine:
-            self.weight = nn.Parameter(torch.ones(normalized_shape))
-            self.bias = nn.Parameter(torch.zeros(normalized_shape)) if bias else None
+            self.weight = nn.Parameter(torch.ones(normalized_shape, dtype=torch.float32))
+            self.bias = nn.Parameter(torch.zeros(normalized_shape, dtype=self.weight.dtype)) if bias else None
         else:
             self.weight = self.bias = None
         self.epsilon = eps
