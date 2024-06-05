@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import math
+from dataclasses import dataclass
 from typing import Callable, Literal
 
 import torch
@@ -13,7 +13,7 @@ from xformers.triton.dropout import FusedDropoutBias
 class LoRAConfig:
     rank: int
     dropout: float
-    init: Literal["ortho", "zero_b", "none"] = "ortho"
+    init: Literal["ortho", "zero_b", "almost_zero_b", "none"] = "ortho"
     alpha: int = 16
 
 
@@ -76,17 +76,23 @@ class LoRA(nn.Module):
                         std = math.sqrt(2.0 / float(fan_in + fan_out))
                         ratio = (std * math.sqrt(fan_in * fan_out)) / torch.norm(param.weight)
                         param.weight.mul_(ratio)
-            case "zero_b":
-                # xavier_normal_2sigma
-                fan_in, fan_out = _calculate_fan_in_and_fan_out(self.high_to_low_a.weight)
-                std = math.sqrt(2.0 / float(fan_in + fan_out))
-                _no_grad_trunc_normal_(
-                    self.high_to_low_a.weight,
-                    0.0,
-                    std / 0.87962566103423978,
-                    a=-2,
-                    b=2,
-                )
-                self.low_to_high_b.weight.zero_()
+            case "zero_b" | "almost_zero_b":
+                for param, scale in (
+                    (self.high_to_low_a, 1),
+                    (self.low_to_high_b, 0 if self.init == "zero_b" else 1e-7),
+                ):
+                    if scale == 0:
+                        param.zero_()
+                        continue
+                    # xavier_normal_2sigma
+                    fan_in, fan_out = _calculate_fan_in_and_fan_out(param.weight)
+                    std = math.sqrt(2.0 / float(fan_in + fan_out)) * scale
+                    _no_grad_trunc_normal_(
+                        param.weight,
+                        0.0,
+                        std / 0.87962566103423978,
+                        a=-2,
+                        b=2,
+                    )
             case _:
                 raise AssertionError(f"Unsupported LoRA initialization: {self.init}")
