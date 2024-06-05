@@ -59,23 +59,18 @@ class LoRA(nn.Module):
                 )
                 torch.nn.init.orthogonal_(basis)
                 combinations = torch.rand(dim_in + dim_out, rank // 2, device=basis.device)
-                with torch.no_grad():
-                    torch.matmul(
-                        combinations[:dim_in],
-                        basis[: rank // 2],
-                        out=self.high_to_low_a.weight.T,
-                    )
-                    torch.matmul(
-                        combinations[dim_in:],
-                        basis[rank // 2 :],
-                        out=self.low_to_high_b.weight,
-                    )
-                    # normalize
-                    for param in (self.high_to_low_a, self.low_to_high_b):
-                        fan_in, fan_out = _calculate_fan_in_and_fan_out(param.weight)
-                        std = math.sqrt(2.0 / float(fan_in + fan_out))
-                        ratio = (std * math.sqrt(fan_in * fan_out)) / torch.norm(param.weight)
-                        param.weight.mul_(ratio)
+                high_to_low_a = torch.empty_like(self.high_to_low_a.weight, dtype=basis.dtype)
+                low_to_high_b = torch.empty_like(self.low_to_high_b.weight, dtype=basis.dtype)
+                torch.matmul(combinations[:dim_in], basis[: rank // 2], out=high_to_low_a.T)
+                torch.matmul(combinations[dim_in:], basis[rank // 2 :], out=low_to_high_b)
+                # normalize
+                for param in (high_to_low_a, low_to_high_b):
+                    fan_in, fan_out = _calculate_fan_in_and_fan_out(param)
+                    std = math.sqrt(2.0 / float(fan_in + fan_out))
+                    ratio = (std * math.sqrt(fan_in * fan_out)) / torch.norm(param)
+                    param.mul_(ratio)
+                self.high_to_low_a.weight.copy_(high_to_low_a)
+                self.low_to_high_b.weight.copy_(low_to_high_b)
             case "zero_b" | "almost_zero_b":
                 for param, scale in (
                     (self.high_to_low_a, 1),
