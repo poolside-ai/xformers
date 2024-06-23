@@ -17,7 +17,9 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-@torch.jit.script
+# @torch.jit.script
+# TODO(rciocoiu): temporarily drop jit because it upcasts
+#                 the result to fp32 for some weird reason
 def apply_rotary_pos_emb(x, cos, sin):
     # NOTE: This could probably be moved to Triton
 
