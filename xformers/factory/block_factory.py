@@ -228,11 +228,11 @@ class xFormerEncoderBlock(torch.nn.Module):
         return cls(config, **kwargs)
 
     @staticmethod
-    def get_reversible_layer(config) -> Tuple[nn.Module, nn.Module]:
+    def get_layer(config, reversible: bool=True) -> Tuple[nn.Module, nn.Module]:
         ln_factory = _get_ln_factory(
             config.dim_model,
             config.residual_norm_style,
-            residual=False,
+            residual=not reversible,
             use_triton=config.use_triton,
             bias=config.ln_bias,
             normalization=config.normalization,
