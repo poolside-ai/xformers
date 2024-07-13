@@ -231,7 +231,8 @@ def layer_norm(
     y = None
     try:
         if (
-            not _triton_registered_warnings
+            False
+            and not _triton_registered_warnings
             and torch.cuda.is_available()
             and x.is_cuda
             and weight is not None
