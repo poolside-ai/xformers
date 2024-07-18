@@ -38,40 +38,46 @@ def build_multi_head_attention(
     "foo": "bar"}` will find a class that was registered as "my_attention"
     (see :func:`register_attention`) and call .from_config on it."""
 
-    if not isinstance(multi_head_config, MultiHeadDispatchConfig):
-        # Extract the required fields
-        field_names = list(map(lambda x: x.name, fields(MultiHeadDispatchConfig)))
+    if isinstance(multi_head_config, MultiHeadDispatchConfig):
+        multi_head_config = dataclasses.asdict(multi_head_config)
+    else:
+        multi_head_config = multi_head_config.copy()
 
-        # The missing fields get Noned
-        for k in field_names:
-            if k not in multi_head_config.keys():
-                multi_head_config[k] = None
+    dispatch_class = multi_head_config.pop("dispatch_class", MultiHeadDispatch)
+    config_class = multi_head_config.pop("config_class", MultiHeadDispatchConfig)
 
-        # Could be that the attention needs to be instantiated
-        if not isinstance(multi_head_config["attention"], Attention):
-            # Convenience: fill in possible missing fields
-            if "num_heads" not in multi_head_config["attention"]:
-                multi_head_config["attention"]["num_heads"] = multi_head_config[
-                    "num_heads"
-                ]
+    # Extract the required fields
+    field_names = list(map(lambda x: x.name, fields(config_class)))
 
-            if "dim_model" not in multi_head_config["attention"]:
-                multi_head_config["attention"]["dim_model"] = multi_head_config[
-                    "dim_model"
-                ]
+    # The missing fields get Noned
+    for k in field_names:
+        if k not in multi_head_config.keys():
+            multi_head_config[k] = None
 
-            if (
-                "dim_features" not in multi_head_config["attention"]
-                or multi_head_config["attention"]["dim_features"] is None
-            ):
-                multi_head_config["attention"]["dim_features"] = (
-                    multi_head_config["dim_model"] // multi_head_config["num_heads"]
-                )
+    # Could be that the attention needs to be instantiated
+    if not isinstance(multi_head_config["attention"], Attention):
+        # Convenience: fill in possible missing fields
+        if "num_heads" not in multi_head_config["attention"]:
+            multi_head_config["attention"]["num_heads"] = multi_head_config[
+                "num_heads"
+            ]
 
-            multi_head_config["attention"] = build_attention(
-                multi_head_config["attention"]
+        if "dim_model" not in multi_head_config["attention"]:
+            multi_head_config["attention"]["dim_model"] = multi_head_config[
+                "dim_model"
+            ]
+
+        if (
+            "dim_features" not in multi_head_config["attention"]
+            or multi_head_config["attention"]["dim_features"] is None
+        ):
+            multi_head_config["attention"]["dim_features"] = (
+                multi_head_config["dim_model"] // multi_head_config["num_heads"]
             )
 
-        multi_head_config = MultiHeadDispatchConfig(**multi_head_config)
+        multi_head_config["attention"] = build_attention(
+            multi_head_config["attention"]
+        )
 
-    return MultiHeadDispatch.from_config(multi_head_config)
+    multi_head_config = config_class(**multi_head_config)
+    return dispatch_class.from_config(multi_head_config)
