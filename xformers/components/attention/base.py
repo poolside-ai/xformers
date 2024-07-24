@@ -56,6 +56,9 @@ class Attention(nn.Module, metaclass=ABCMeta):
         # This attention requires a context length which is squared, often due to 2D pooling
         self.requires_squared_context = False
 
+        # This attention accepts (batch, sequence_len, head_num, head_size) shaped inputs.
+        self.supports_b_s_h_d = False
+
         # Whether this attention mechanism supports attention masks
         self.supports_attention_mask = True
         self.supports_key_padding_mask = False

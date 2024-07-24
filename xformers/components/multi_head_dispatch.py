@@ -70,14 +70,19 @@ class MultiHeadDispatchConfig:
         return getattr(self, item)
 
 
+# Simple reshape to indicate the number of heads.
+def _expose_heads(t: torch.Tensor, B: int, S: int, H: int, Hs: int):
+    return t.view(B, S, H, Hs)
+
+
 # Move head forward and fold into batch dim. dimensions become (B * nh, S, hs)
 def _fold_heads(t: torch.Tensor, B: int, S: int, H: int, Hs: int):
-    return t.view(B, S, H, Hs).transpose(1, 2).flatten(start_dim=0, end_dim=1)
+    return _expose_heads(t, B, S, H, Hs).transpose(1, 2).flatten(start_dim=0, end_dim=1)
 
 
 # Move head forward and fold into batch dim. dimensions become (B, nh, S, hs)
 def _split_heads(t: torch.Tensor, B: int, S: int, H: int, Hs: int):
-    return t.view(B, S, H, Hs).transpose(1, 2)
+    return _expose_heads(t, B, S, H, Hs).transpose(1, 2)
 
 
 class MultiHeadDispatch(nn.Module):
@@ -286,9 +291,12 @@ class MultiHeadDispatch(nn.Module):
 
         else:
             # Reshape k/q/v to either expose the heads, or fold the head dimension into the batch
-            reshape_fn = (
-                _split_heads if self.attention.requires_head_dimension else _fold_heads
-            )
+            if self.attention.supports_b_s_h_d:
+                reshape_fn = _expose_heads
+            elif self.attention.requires_head_dimension:
+                reshape_fn = _split_heads
+            else:
+                reshape_fn = _fold_heads
 
             q = reshape_fn(q, B, S_Q, self.num_heads, self.dim_key_head)
             k = reshape_fn(k, B, S_K, self.num_heads, self.dim_key_head)
@@ -298,11 +306,10 @@ class MultiHeadDispatch(nn.Module):
         y = self.attention(q, k, v, **kw_mask_args)
 
         # Re-assemble all head outputs side by side
-        y = (
-            y.view(B, self.num_heads, S_Q, self.dim_value_head)
-            .transpose(1, 2)
-            .flatten(start_dim=2, end_dim=3)
-        )
+        y = y.view(B, self.num_heads, S_Q, self.dim_value_head)
+        if not self.attention.supports_b_s_h_d:
+            y = y.transpose(1, 2)
+        y = y.flatten(start_dim=2, end_dim=3)
 
         # Output projection, dropout and good to go
         if torch.is_autocast_enabled():
