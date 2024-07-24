@@ -306,7 +306,9 @@ class MultiHeadDispatch(nn.Module):
         y = self.attention(q, k, v, **kw_mask_args)
 
         # Re-assemble all head outputs side by side
-        if not self.attention.supports_b_s_h_d:
+        if self.attention.supports_b_s_h_d:
+            y = y.view(B, S_Q, self.num_heads, self.dim_value_head)
+        else:
             y = (
                 y.view(B, self.num_heads, S_Q, self.dim_value_head)
                 .transpose(1, 2)
