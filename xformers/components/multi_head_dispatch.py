@@ -306,9 +306,11 @@ class MultiHeadDispatch(nn.Module):
         y = self.attention(q, k, v, **kw_mask_args)
 
         # Re-assemble all head outputs side by side
-        y = y.view(B, self.num_heads, S_Q, self.dim_value_head)
         if not self.attention.supports_b_s_h_d:
-            y = y.transpose(1, 2)
+            y = (
+                y.view(B, self.num_heads, S_Q, self.dim_value_head)
+                .transpose(1, 2)
+            )
         y = y.flatten(start_dim=2, end_dim=3)
 
         # Output projection, dropout and good to go
