@@ -8,7 +8,6 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Callable, Optional, Union
-import warnings
 
 import torch
 
@@ -32,12 +31,6 @@ try:
     from xformers.components.feedforward import MLP
 
 except ImportError:
-    warnings.warn(
-        "Either FairScale or torch distributed is not available, "
-        "MixtureOfExperts will not be exposed. "
-        "Please install them if you would like to use MoE",
-        UnavailableComponentWarning,
-    )
     _is_fairscale_available = False
 
 
