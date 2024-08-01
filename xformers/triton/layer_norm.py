@@ -206,13 +206,18 @@ class FusedLayerNorm(nn.Module):
             grad_dtype = None
         return layer_norm(x, self.weight, self.bias, self.epsilon, grad_dtype)
 
-    def init_weights(self, *args, **kwargs):
-        with torch.no_grad():
-            if self.weight is not None:
-                self.weight.fill_(1.0)
+    @torch.no_grad()
+    def init_weights(self, *args, **kwargs) -> int:
+        count = 0
+        if self.weight is not None:
+            self.weight.fill_(1.0)
+            count += 1
 
-            if self.bias is not None:
-                self.bias.fill_(0.0)
+        if self.bias is not None:
+            self.bias.fill_(0.0)
+            count += 1
+
+        return count
 
 
 def layer_norm(

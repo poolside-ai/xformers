@@ -41,7 +41,7 @@ class LoRA(nn.Module):
         y = self.matmul(y, self.low_to_high_b.weight)
         return y
 
-    def init_weights(self) -> None:
+    def init_weights(self) -> int:
         match self.init:
             case "none":
                 pass
@@ -71,6 +71,7 @@ class LoRA(nn.Module):
                     param.mul_(ratio)
                 self.high_to_low_a.weight.copy_(high_to_low_a)
                 self.low_to_high_b.weight.copy_(low_to_high_b)
+                return 2
             case "zero_b" | "almost_zero_b":
                 for param, scale in (
                     (self.high_to_low_a, 1),
@@ -89,5 +90,7 @@ class LoRA(nn.Module):
                         a=-2,
                         b=2,
                     )
+                return 2
             case _:
                 raise AssertionError(f"Unsupported LoRA initialization: {self.init}")
+        return 0
