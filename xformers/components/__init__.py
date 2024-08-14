@@ -57,9 +57,9 @@ def build_multi_head_attention(
     # Could be that the attention needs to be instantiated
     if not isinstance(multi_head_config["attention"], Attention):
         # Convenience: fill in possible missing fields
-        if "num_heads" not in multi_head_config["attention"]:
-            multi_head_config["attention"]["num_heads"] = multi_head_config[
-                "num_heads"
+        if "num_heads_no_tp" not in multi_head_config["attention"]:
+            multi_head_config["attention"]["num_heads_no_tp"] = multi_head_config[
+                "num_heads_no_tp"
             ]
 
         if "dim_model" not in multi_head_config["attention"]:
@@ -72,7 +72,7 @@ def build_multi_head_attention(
             or multi_head_config["attention"]["dim_features"] is None
         ):
             multi_head_config["attention"]["dim_features"] = (
-                multi_head_config["dim_model"] // multi_head_config["num_heads"]
+                multi_head_config["dim_model"] // multi_head_config["num_heads_no_tp"]
             )
 
         multi_head_config["attention"] = build_attention(
