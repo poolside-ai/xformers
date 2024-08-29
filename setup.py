@@ -28,6 +28,12 @@ from torch.utils.cpp_extension import (
     CUDAExtension,
 )
 
+if "CONDA_PREFIX" in os.environ:
+    raise EnvironmentError(
+        "We don't support Anaconda. We will never support Anaconda while Vadim is at Poolside. "
+        "Nobody should use Anaconda on Linux."
+    )
+
 this_dir = os.path.dirname(__file__)
 
 
