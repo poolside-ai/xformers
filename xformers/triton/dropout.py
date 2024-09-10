@@ -11,7 +11,7 @@ from typing import Optional
 
 import torch
 import triton
-from torch.cuda.amp import custom_bwd, custom_fwd
+from torch.amp import custom_bwd, custom_fwd
 
 from xformers.components.activations import Activation, build_activation
 from xformers.triton.k_activations import get_triton_activation_index
@@ -24,7 +24,7 @@ BLOCK_N = 128  # NOTE: This should ideally be GPU dependent, big impact on perf
 # Helper to handle the SPMD launch grid and error cases
 class _dropout(torch.autograd.Function):
     @staticmethod
-    @custom_fwd
+    @custom_fwd(device_type="cuda")
     def forward(ctx, x, p, bias, activation, scale, trainable_bias, inplace_fwd, inplace_bwd):
         # Soft-flatten an hypothetical 3rd dimension
         x_ = x.reshape(-1, x.shape[-1]).contiguous()
@@ -90,7 +90,7 @@ class _dropout(torch.autograd.Function):
         return x_.reshape_as(x)
 
     @staticmethod
-    @custom_bwd
+    @custom_bwd(device_type="cuda")
     def backward(
         ctx, grad_out
     ):  # pragma: no cover  # This is covered, but called from C++ and not tracked

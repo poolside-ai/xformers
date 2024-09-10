@@ -103,7 +103,7 @@ class _SwiGLUFusedFunc(torch.autograd.Function):
     NAME = "fused.py"
 
     @classmethod
-    @torch.cuda.amp.custom_fwd
+    @torch.amp.custom_fwd(device_type="cuda")
     def forward(cls, ctx, x, w1, b1, w2, b2, w3, b3):
         x1x2, x4 = DualGemmSiluOp.OPERATOR(x, w1, b1, w2, b2)
 
@@ -124,7 +124,7 @@ class _SwiGLUFusedFunc(torch.autograd.Function):
         return dw, db
 
     @classmethod
-    @torch.cuda.amp.custom_bwd
+    @torch.amp.custom_bwd(device_type="cuda")
     def backward(cls, ctx, dx5):
         x, w1, w2, w3, x1x2 = ctx.saved_tensors
         w1w2 = stack_or_none([w1, w2], dim=0)

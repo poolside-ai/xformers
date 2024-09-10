@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import torch
 import torch.nn as nn
-from torch.cuda.amp import custom_bwd, custom_fwd
+from torch.amp import custom_bwd, custom_fwd
 
 from xformers.components.activations import Activation
 from xformers.triton.k_activations import get_triton_activation_index
@@ -18,7 +18,7 @@ from xformers.triton.k_fused_matmul_fw import fused_matmul
 
 class _fused_linear_triton(torch.autograd.Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.float16)
+    @custom_fwd(cast_inputs=torch.float16, device_type="cuda")
     def forward(
         ctx,
         x,
@@ -46,7 +46,7 @@ class _fused_linear_triton(torch.autograd.Function):
         return y
 
     @staticmethod
-    @custom_bwd
+    @custom_bwd(device_type="cuda")
     def backward(
         ctx: Any, grad_out: torch.Tensor
     ) -> Any:  # pragma: no cover  # this is covered, but called directly from C++
