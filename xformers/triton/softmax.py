@@ -9,7 +9,7 @@ from typing import Optional
 
 import torch
 import triton
-from torch.cuda.amp import custom_bwd, custom_fwd
+from torch.amp import custom_bwd, custom_fwd
 
 from xformers.triton.k_softmax import _softmax, _softmax_backward
 
@@ -27,7 +27,7 @@ _triton_registered_warnings = False
 # Helper to handle the SPMD launch grid and error cases
 class _softmax_triton(torch.autograd.Function):
     @staticmethod
-    @custom_fwd(cast_inputs=torch.float16 if _triton_softmax_fp16_enabled else None)
+    @custom_fwd(cast_inputs=torch.float16 if _triton_softmax_fp16_enabled else None, device_type="cuda")
     def forward(ctx, x, mask, log_outputs, causal):
         """
         Fused softmax implementation, using the Triton programming model.
@@ -83,7 +83,7 @@ class _softmax_triton(torch.autograd.Function):
         return y.reshape_as(x)
 
     @staticmethod
-    @custom_bwd
+    @custom_bwd(device_type="cuda")
     def backward(
         ctx, grad_out
     ):  # pragma: no cover  # this is covered, but called directly from C++

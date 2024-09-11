@@ -9,7 +9,7 @@ from typing import List, Optional
 import torch
 import torch.nn as nn
 from torch.autograd.function import Function, once_differentiable
-from torch.cuda.amp import custom_bwd, custom_fwd
+from torch.amp import custom_bwd, custom_fwd
 from torch.utils.checkpoint import get_device_states, set_device_states
 
 from xformers.components import RequiresWrappedInputs
@@ -72,7 +72,7 @@ class ReversibleBlock(nn.Module):
         self.g = Deterministic(g)
         self.split_dim = split_dim
 
-    @custom_fwd
+    @custom_fwd(device_type="cuda")
     @torch.no_grad()
     def forward(self, x: torch.Tensor, f_args={}, g_args={}):
         assert x.dtype == torch.get_autocast_gpu_dtype()
@@ -81,7 +81,7 @@ class ReversibleBlock(nn.Module):
         x2.add_(self.g(x1, record_rng=self.training, **g_args))
         return x
 
-    @custom_bwd
+    @custom_bwd(device_type="cuda")
     def backward_pass(
         self, y: torch.Tensor, dy: torch.Tensor, f_args={}, g_args={}
     ) -> None:  # pragma: no cover  # this is covered, but called directly from C++

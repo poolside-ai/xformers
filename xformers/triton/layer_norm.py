@@ -12,7 +12,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import triton
-from torch.cuda.amp import custom_bwd, custom_fwd
+from torch.amp import custom_bwd, custom_fwd
 
 from xformers.triton.k_layer_norm import (
     layer_norm_bwd_dwdb,
@@ -29,7 +29,7 @@ _triton_registered_warnings = False
 
 class _LayerNorm(torch.autograd.Function):
     @staticmethod
-    @custom_fwd(cast_inputs=_triton_layernorm_cast)
+    @custom_fwd(cast_inputs=_triton_layernorm_cast, device_type="cuda")
     def forward(ctx, x, weight, bias, eps, grad_dtype):
         # catch eps being too small if the tensors are fp16
         if x.dtype == torch.float16:
@@ -94,7 +94,7 @@ class _LayerNorm(torch.autograd.Function):
         return y.reshape_as(x)
 
     @staticmethod
-    @custom_bwd
+    @custom_bwd(device_type="cuda")
     def backward(
         ctx, dy
     ):  # pragma: no cover  # this is covered, but called directly from C++
